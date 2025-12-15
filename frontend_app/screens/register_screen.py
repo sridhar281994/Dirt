@@ -9,12 +9,14 @@ from kivy.uix.screenmanager import Screen
 from frontend_app.utils.api import ApiError, api_register
 from frontend_app.utils.countries import COUNTRIES
 
+# Email regex
+EMAIL_RE = re.compile(r"[^@]+@[^@]+\.[^@]+")
+
 
 class RegisterScreen(Screen):
     @staticmethod
     def _popup(title: str, msg: str) -> None:
         """Non-blocking popup helper (safe from worker threads)."""
-
         def _open(*_):
             Popup(
                 title=title,
@@ -22,7 +24,6 @@ class RegisterScreen(Screen):
                 size_hint=(0.7, 0.3),
                 auto_dismiss=True,
             ).open()
-
         Clock.schedule_once(_open, 0)
 
     def go_back(self) -> None:
@@ -69,12 +70,15 @@ class RegisterScreen(Screen):
             self._popup("Invalid", "Please select gender: male/female/cross.")
             return
 
+        # Truncate password safely to 72 bytes for bcrypt
+        password_safe = password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
+
         def work():
             try:
                 res = api_register(
                     email=email,
                     username=username,
-                    password=password,
+                    password=password_safe,
                     name=name.strip(),
                     country=country,
                     gender=gender.lower(),
