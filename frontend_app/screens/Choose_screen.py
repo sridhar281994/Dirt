@@ -79,6 +79,9 @@ class ChooseScreen(Screen):
         elif text == "Change Password":
             if self.manager:
                 self.manager.current = "forgot_password"
+        elif text == "History":
+            if self.manager:
+                self.manager.current = "user_match"
         elif text == "Logout":
             self.logout()
         

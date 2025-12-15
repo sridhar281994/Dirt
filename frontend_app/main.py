@@ -21,6 +21,7 @@ from frontend_app.screens.public_chat_screen import PublicChatScreen
 from frontend_app.screens.register_screen import RegisterScreen
 from frontend_app.screens.video_screen import VideoScreen
 from frontend_app.screens.reset_password_screen import ForgotPasswordScreen, ResetPasswordScreen
+from frontend_app.screens.usermatch_screen import UserMatchScreen
 from frontend_app.utils.storage import get_user
 
 class WelcomeScreen(Screen):
@@ -40,6 +41,7 @@ class ChatApp(App):
         self.sm.add_widget(ChatScreen(name="chat"))
         self.sm.add_widget(PublicChatScreen(name="public_chat"))
         self.sm.add_widget(VideoScreen(name="video"))
+        self.sm.add_widget(UserMatchScreen(name="user_match"))
 
         self.sm.current = "welcome"
 

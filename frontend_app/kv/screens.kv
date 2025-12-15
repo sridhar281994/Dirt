@@ -552,7 +552,7 @@
             Spinner:
                 id: settings_spinner
                 text: "⚙️"
-                values: ["Subscribe", "Change Password", "Logout"]
+                values: ["Subscribe", "History", "Change Password", "Logout"]
                 size_hint_x: None
                 width: dp(50)
                 background_color: (0.2, 0.2, 0.2, 1)
@@ -832,3 +832,57 @@
                 text: "Video Session Active\n\n(Mock Interface)\n\nID: " + str(root.session_id)
                 halign: "center"
                 font_size: sp(18)
+
+<UserMatchScreen>:
+    name: "user_match"
+    FloatLayout:
+        canvas.before:
+            Color:
+                rgba: 1, 1, 1, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+                source: "assets/background.png"
+
+        BoxLayout:
+            orientation: "vertical"
+            padding: dp(10)
+            spacing: dp(10)
+
+            # Header
+            BoxLayout:
+                size_hint_y: None
+                height: dp(50)
+                spacing: dp(10)
+                canvas.before:
+                    Color:
+                        rgba: 0, 0, 0, 0.5
+                    Rectangle:
+                        pos: self.pos
+                        size: self.size
+                Button:
+                    text: "Back"
+                    size_hint_x: None
+                    width: dp(80)
+                    on_release: root.go_back()
+                Label:
+                    text: "Chat History"
+                    bold: True
+                    font_size: sp(18)
+
+            # History List
+            ScrollView:
+                do_scroll_x: False
+                canvas.before:
+                    Color:
+                        rgba: 0, 0, 0, 0.3
+                    Rectangle:
+                        pos: self.pos
+                        size: self.size
+                GridLayout:
+                    id: history_box
+                    cols: 1
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: dp(8)
+                    padding: dp(10)
