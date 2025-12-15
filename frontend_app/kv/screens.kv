@@ -634,96 +634,206 @@
 <ChooseScreen>:
     name: "choose"
     FloatLayout:
+        canvas.before:
+            Color:
+                rgba: 0.1, 0.1, 0.15, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+        # Top Bar
         BoxLayout:
             size_hint: 1, None
-            height: dp(56)
+            height: dp(60)
             pos_hint: {"top": 1}
             padding: dp(10)
             spacing: dp(10)
+            canvas.before:
+                Color:
+                    rgba: 0.2, 0.2, 0.25, 1
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
 
             Label:
-                text: "Choose"
-                size_hint_x: 0.35
+                text: root.current_name or "Loading..."
+                size_hint_x: 0.3
+                halign: "left"
+                valign: "middle"
+                text_size: self.size
+                font_size: sp(16)
                 color: 1, 1, 1, 1
+
+            Label:
+                text: root.current_country or ""
+                size_hint_x: 0.3
+                halign: "left"
+                valign: "middle"
+                text_size: self.size
+                font_size: sp(14)
+                color: 0.8, 0.8, 0.8, 1
 
             Spinner:
                 id: pref_spinner
                 text: "both"
                 values: ["male", "female", "both"]
-                size_hint_x: 0.25
-                on_text: root.set_preference(self.text)
-
-            Button:
-                text: "Subscribe"
                 size_hint_x: 0.2
-                on_release: root.subscribe()
+                background_color: 0.3, 0.3, 0.4, 1
+                on_text: root.set_preference(self.text)
 
             Button:
                 text: "Logout"
                 size_hint_x: 0.2
+                background_color: 0.8, 0.2, 0.2, 1
                 on_release: root.logout()
 
+        # Main Content
         BoxLayout:
             orientation: "vertical"
-            size_hint: 0.92, 0.72
-            pos_hint: {"center_x": 0.5, "center_y": 0.5}
-            padding: dp(14)
+            size_hint: 0.94, 0.82
+            pos_hint: {"center_x": 0.5, "center_y": 0.48}
+            padding: dp(5)
             spacing: dp(10)
-            canvas.before:
-                Color:
-                    rgba: 0, 0, 0, 0.45
-                RoundedRectangle:
-                    pos: self.pos
-                    size: self.size
-                    radius: [18]
 
+            # Profile Card
             BoxLayout:
-                size_hint_y: None
-                height: dp(32)
-                Label:
-                    text: root.current_name
-                    halign: "left"
-                    valign: "middle"
-                    text_size: self.size
-                Label:
-                    text: root.current_country
-                    halign: "right"
-                    valign: "middle"
-                    text_size: self.size
+                orientation: "vertical"
+                size_hint_y: 0.6
+                padding: dp(10)
+                canvas.before:
+                    Color:
+                        rgba: 0.2, 0.2, 0.25, 1
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [15]
 
-            AsyncImage:
-                source: root.current_image_url if root.current_image_url else ""
-                allow_stretch: True
-                keep_ratio: True
-                size_hint_y: None
-                height: dp(220)
+                AsyncImage:
+                    source: root.current_image_url if root.current_image_url else ""
+                    allow_stretch: True
+                    keep_ratio: True
+                    size_hint_y: 0.7
+
+                Label:
+                    text: root.current_desc
+                    size_hint_y: 0.3
+                    valign: "top"
+                    halign: "center"
+                    text_size: self.width, None
+                    padding: dp(10), dp(10)
 
             Label:
-                text: root.current_desc
-                valign: "top"
-                text_size: self.width, None
+                text: "Swipe Left/Right to browse"
+                size_hint_y: None
+                height: dp(30)
+                font_size: sp(14)
+                color: 0.7, 0.7, 0.7, 1
 
+            # Action Buttons
             BoxLayout:
                 size_hint_y: None
-                height: dp(52)
+                height: dp(50)
                 spacing: dp(10)
-                Button:
-                    text: "Swipe Left"
-                    on_release: root.swipe_left()
-                Button:
-                    text: "Swipe Right"
-                    on_release: root.swipe_right()
 
-            BoxLayout:
-                size_hint_y: None
-                height: dp(56)
-                spacing: dp(10)
                 Button:
-                    text: "Chat"
+                    text: "Start Text Chat"
+                    background_color: 0.2, 0.6, 1, 1
                     on_release: root.start_chat("text")
+
                 Button:
-                    text: "Video"
-                    on_release: root.start_chat("video")
+                    text: "Start Voice Chat"
+                    background_color: 0.2, 0.8, 0.4, 1
+                    on_release: root.start_chat("voice")
+
+            Button:
+                text: "Public Chat (Free)"
+                size_hint_y: None
+                height: dp(50)
+                background_color: 0.8, 0.5, 0.2, 1
+                on_release: root.start_public_chat()
+
+            # Subscription Plans
+            BoxLayout:
+                orientation: "vertical"
+                size_hint_y: None
+                height: dp(100)
+                spacing: dp(5)
+
+                BoxLayout:
+                    spacing: dp(5)
+                    Button:
+                        text: "Text: ₹50/hr"
+                        font_size: sp(13)
+                        on_release: root.subscribe("text_hour")
+                    Button:
+                        text: "Text: ₹10/10min"
+                        font_size: sp(13)
+                        on_release: root.subscribe("text_10min")
+
+                BoxLayout:
+                    spacing: dp(5)
+                    Button:
+                        text: "Voice: ₹200/hr"
+                        font_size: sp(13)
+                        on_release: root.subscribe("voice_hour")
+                    Button:
+                        text: "Voice: ₹30/10min"
+                        font_size: sp(13)
+                        on_release: root.subscribe("voice_10min")
+
+<PublicChatScreen>:
+    name: "public_chat"
+    BoxLayout:
+        orientation: "vertical"
+        padding: dp(10)
+        spacing: dp(8)
+        canvas.before:
+            Color:
+                rgba: 0.15, 0.15, 0.2, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+        BoxLayout:
+            size_hint_y: None
+            height: dp(44)
+            spacing: dp(10)
+            Button:
+                text: "Back"
+                size_hint_x: None
+                width: dp(90)
+                background_color: 0.3, 0.3, 0.35, 1
+                on_release: root.go_back()
+            Label:
+                text: "Public Chat (Max 500 msgs)"
+                bold: True
+
+        ScrollView:
+            do_scroll_x: False
+            GridLayout:
+                id: messages_box
+                cols: 1
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: dp(6)
+                padding: dp(5)
+
+        BoxLayout:
+            size_hint_y: None
+            height: dp(50)
+            spacing: dp(8)
+            TextInput:
+                id: message_input
+                hint_text: "Type a public message..."
+                multiline: False
+                background_color: 0.95, 0.95, 0.95, 1
+                foreground_color: 0.1, 0.1, 0.1, 1
+            Button:
+                text: "Send"
+                size_hint_x: None
+                width: dp(80)
+                background_color: 0.3, 0.7, 0.4, 1
+                on_release: root.send_message()
 
 <ChatScreen>:
     name: "chat"
