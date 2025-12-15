@@ -215,3 +215,14 @@ def api_post_public_message(*, message: str, image_url: str = None) -> Dict[str,
     )
     _raise(r)
     return r.json()
+
+
+def api_get_history() -> Dict[str, Any]:
+    r = requests.get(
+        f"{_base_url()}/api/sessions/history",
+        headers=_headers(auth=True),
+        timeout=20,
+        verify=False,
+    )
+    _raise(r)
+    return r.json()

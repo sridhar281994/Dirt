@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Optional
 
+from sqlalchemy import or_
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -64,8 +65,8 @@ def get_next_profile(
     
     # Task 3: "validity" of 10 hours for online status
     # We interpret this as: only show users created (or active) in the last 10 hours.
-    since = datetime.utcnow() - timedelta(hours=10)
-    q = q.filter(User.created_at >= since)
+    # since = datetime.utcnow() - timedelta(hours=10)
+    # q = q.filter(User.created_at >= since)
 
     if swiped_ids:
         q = q.filter(~User.id.in_(swiped_ids))
@@ -147,6 +148,44 @@ def start_session(
     }
 
 
+@router.get("/sessions/history")
+def get_chat_history(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Returns a list of unique users the current user has chatted with,
+    ordered by most recent session.
+    """
+    sessions = (
+        db.query(ChatSession)
+        .filter(or_(ChatSession.user_a_id == user.id, ChatSession.user_b_id == user.id))
+        .order_by(ChatSession.created_at.desc())
+        .all()
+    )
+
+    history_map = {}
+    for s in sessions:
+        other_id = s.user_b_id if s.user_a_id == user.id else s.user_a_id
+        if other_id not in history_map:
+            # Determine "other" user object
+            other = s.user_b if s.user_a_id == user.id else s.user_a
+            if other:
+                history_map[other_id] = {
+                    "user_id": other.id,
+                    "name": other.name,
+                    "image_url": other.image_url,
+                    "last_seen": s.created_at.isoformat(),
+                    "session_id": s.id,
+                    "mode": s.mode,
+                }
+    
+    return {
+        "ok": True,
+        "history": list(history_map.values())
+    }
+
+
 @router.post("/messages")
 def post_message(
     payload: MessageIn,
@@ -158,6 +197,14 @@ def post_message(
         raise HTTPException(404, "Session not found")
     if user.id not in {session.user_a_id, session.user_b_id}:
         raise HTTPException(403, "Not a participant")
+    
+    # Check subscription for opposite/cross gender messaging
+    other_id = session.user_b_id if session.user_a_id == user.id else session.user_a_id
+    other = db.get(User, other_id)
+    if other:
+        if _is_opposite_or_cross(me_gender=user.gender, other_gender=other.gender) and not user.is_subscribed:
+            raise HTTPException(403, "Subscription required to send message.")
+
     if not payload.message or not payload.message.strip():
         raise HTTPException(400, "Message required")
 
