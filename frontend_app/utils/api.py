@@ -145,3 +145,36 @@ def api_demo_subscribe() -> Dict[str, Any]:
     )
     _raise(r)
     return r.json()
+
+
+def api_verify_subscription(*, purchase_token: str, plan_key: str) -> bool:
+    r = requests.post(
+        f"{_base_url()}/api/subscription/verify",
+        json={"purchase_token": purchase_token, "plan_key": plan_key},
+        headers=_headers(auth=True),
+        timeout=20,
+    )
+    _raise(r)
+    return r.json().get("valid", False)
+
+
+def api_get_public_messages(*, limit: int = 500) -> Dict[str, Any]:
+    r = requests.get(
+        f"{_base_url()}/api/public/messages",
+        params={"limit": limit},
+        headers=_headers(auth=True),
+        timeout=20,
+    )
+    _raise(r)
+    return r.json()
+
+
+def api_post_public_message(*, message: str, image_url: str = None) -> Dict[str, Any]:
+    r = requests.post(
+        f"{_base_url()}/api/public/messages",
+        json={"message": message, "image_url": image_url},
+        headers=_headers(auth=True),
+        timeout=20,
+    )
+    _raise(r)
+    return r.json()

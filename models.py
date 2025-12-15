@@ -59,6 +59,19 @@ class ChatMessage(Base):
     sender = relationship("User")
 
 
+class PublicMessage(Base):
+    __tablename__ = "public_messages"
+
+    id = Column(Integer, primary_key=True)
+    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    message = Column(Text, nullable=False)
+    # Optional: store image URL if we support images in public chat
+    image_url = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    sender = relationship("User")
+
+
 class Swipe(Base):
     __tablename__ = "swipes"
 

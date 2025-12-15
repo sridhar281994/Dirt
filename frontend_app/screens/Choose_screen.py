@@ -8,14 +8,34 @@ from kivy.properties import NumericProperty, StringProperty
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen
+from kivy.app import App
 
-from frontend_app.utils.api import ApiError, api_demo_subscribe, api_next_profile, api_start_session, api_swipe
+from frontend_app.utils.api import (
+    ApiError,
+    api_next_profile,
+    api_start_session,
+    api_swipe,
+    api_verify_subscription,
+)
 from frontend_app.utils.storage import clear, get_user, set_user
+
+
+SUBSCRIPTION_PLANS = {
+    "text_hour": 50,
+    "text_10min": 10,
+    "voice_hour": 200,
+    "voice_10min": 30,
+}
 
 
 def _popup(title: str, msg: str) -> None:
     def _open(*_):
-        p = Popup(title=title, content=Label(text=str(msg)), size_hint=(0.75, 0.35), auto_dismiss=True)
+        p = Popup(
+            title=title,
+            content=Label(text=str(msg)),
+            size_hint=(0.75, 0.35),
+            auto_dismiss=True,
+        )
         p.open()
         Clock.schedule_once(lambda _dt: p.dismiss(), 2.3)
 
@@ -29,6 +49,9 @@ class ChooseScreen(Screen):
     current_country = StringProperty("")
     current_desc = StringProperty("")
     current_image_url = StringProperty("")
+    
+    # Touch handling
+    _touch_start_x = None
 
     def on_pre_enter(self, *args):
         self.refresh_profile()
@@ -42,10 +65,9 @@ class ChooseScreen(Screen):
         my_gender = str(u.get("gender") or "").strip().lower()
         subscribed = bool(u.get("is_subscribed"))
 
-        # Requirement: selecting opposite gender requires subscription.
+        # Opposite gender selection requires subscription
         if v != "both" and my_gender in {"male", "female"} and v != my_gender and not subscribed:
             _popup("Subscription", "Opposite gender preference requires subscription.")
-            # Revert spinner back to both (if present)
             spinner = self.ids.get("pref_spinner") if hasattr(self, "ids") else None
             if spinner is not None:
                 spinner.text = "both"
@@ -71,7 +93,7 @@ class ChooseScreen(Screen):
     def _set_profile(self, prof: Optional[Dict[str, Any]]) -> None:
         if not prof:
             self.current_profile_id = 0
-            self.current_name = "No more profiles"
+            self.current_name = ""
             self.current_country = ""
             self.current_desc = ""
             self.current_image_url = ""
@@ -101,6 +123,20 @@ class ChooseScreen(Screen):
                 _popup("Error", str(exc))
 
         Thread(target=work, daemon=True).start()
+    
+    def on_touch_down(self, touch):
+        if self.collide_point(*touch.pos):
+            self._touch_start_x = touch.x
+        return super().on_touch_down(touch)
+
+    def on_touch_up(self, touch):
+        if self._touch_start_x is not None:
+            if touch.x - self._touch_start_x > 100:  # Swipe Right
+                self.swipe_right()
+            elif self._touch_start_x - touch.x > 100:  # Swipe Left
+                self.swipe_left()
+            self._touch_start_x = None
+        return super().on_touch_up(touch)
 
     def start_chat(self, mode: str) -> None:
         tid = int(self.current_profile_id or 0)
@@ -131,29 +167,46 @@ class ChooseScreen(Screen):
                 _popup("Subscription", str(exc))
 
         Thread(target=work, daemon=True).start()
+    
+    def start_public_chat(self) -> None:
+        # Navigate to public chat screen
+        if self.manager.has_screen("public_chat"):
+            self.manager.current = "public_chat"
+        else:
+            _popup("Error", "Public chat screen not found.")
 
-    def subscribe(self) -> None:
-        # Demo subscription activation (backend marks user.is_subscribed = True).
-        _popup(
-            "Subscription plans",
-            "Text chat: ₹50/hour or ₹10/10 minutes\n"
-            "Video/Voice chat: ₹200/hour or ₹30/10 minutes\n\n"
-            "This button activates a demo subscription in backend.",
-        )
-        def work():
+    def subscribe(self, plan_key: str) -> None:
+        """
+        Initiates Google Play subscription.
+        plan_key must be one of SUBSCRIPTION_PLANS keys:
+        'text_hour', 'text_10min', 'voice_hour', 'voice_10min'
+        """
+        if plan_key not in SUBSCRIPTION_PLANS:
+            _popup("Error", "Invalid subscription plan.")
+            return
+
+        def purchase_flow():
             try:
-                api_demo_subscribe()
-                u = get_user()
+                # Mock purchase token for now as we don't have Google Play integration
+                purchase_token = f"mock_token_{plan_key}"
+
+                # Verify subscription with backend
+                valid = api_verify_subscription(purchase_token=purchase_token, plan_key=plan_key)
+                if not valid:
+                    raise ApiError("Subscription verification failed.")
+
+                # Update user subscription status
+                u = get_user() or {}
                 u["is_subscribed"] = True
                 set_user(u)
-                _popup("Success", "Subscription activated (demo).")
-            except ApiError as exc:
-                _popup("Error", str(exc))
+                _popup("Success", f"Subscription activated: {plan_key}")
 
-        Thread(target=work, daemon=True).start()
+            except Exception as exc:
+                _popup("Subscription Error", str(exc))
+
+        Thread(target=purchase_flow, daemon=True).start()
 
     def logout(self) -> None:
         clear()
         if self.manager:
             self.manager.current = "login"
-
