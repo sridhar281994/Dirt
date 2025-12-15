@@ -64,8 +64,8 @@ def get_next_profile(
     
     # Task 3: "validity" of 10 hours for online status
     # We interpret this as: only show users created (or active) in the last 10 hours.
-    since = datetime.utcnow() - timedelta(hours=10)
-    q = q.filter(User.created_at >= since)
+    # since = datetime.utcnow() - timedelta(hours=10)
+    # q = q.filter(User.created_at >= since)
 
     if swiped_ids:
         q = q.filter(~User.id.in_(swiped_ids))

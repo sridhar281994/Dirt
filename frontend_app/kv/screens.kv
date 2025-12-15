@@ -553,7 +553,8 @@
                 id: settings_spinner
                 text: "⚙️"
                 values: ["Subscribe", "Change Password", "Logout"]
-                size_hint_x: 0.2
+                size_hint_x: None
+                width: dp(50)
                 background_color: (0.2, 0.2, 0.2, 1)
                 on_text: root.on_settings_select(self.text)
 
@@ -591,12 +592,31 @@
                     valign: "top"
                     padding: dp(10), dp(10)
 
-                Label:
-                    text: "↔️"
-                    font_size: sp(30)
+                BoxLayout:
                     size_hint_y: None
-                    height: dp(40)
-                    color: 0.8, 0.8, 0.8, 1
+                    height: dp(60)
+                    spacing: dp(20)
+                    padding: dp(10)
+
+                    Button:
+                        text: "←" # Left / Pass
+                        font_size: sp(30)
+                        size_hint_x: None
+                        width: dp(60)
+                        background_color: (0.8, 0.2, 0.2, 1)
+                        on_release: root.swipe_left()
+
+                    Label:
+                        text: "Swipe"
+                        color: 0.8, 0.8, 0.8, 1
+
+                    Button:
+                        text: "→" # Right / Like
+                        font_size: sp(30)
+                        size_hint_x: None
+                        width: dp(60)
+                        background_color: (0.2, 0.8, 0.2, 1)
+                        on_release: root.swipe_right()
 
                 # Chat Buttons
                 BoxLayout:

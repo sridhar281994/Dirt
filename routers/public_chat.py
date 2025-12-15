@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -16,7 +16,7 @@ router = APIRouter(tags=["public"])
 
 class PublicMessageIn(BaseModel):
     message: str
-    image_url: str = None
+    image_url: Optional[str] = None
 
 
 @router.get("/public/messages")
