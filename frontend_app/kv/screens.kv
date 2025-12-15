@@ -231,6 +231,16 @@
                         on_release: root.verify_and_login()
 
                     Button:
+                        text: "Login as Guest"
+                        size_hint_y: None
+                        height: dp(44)
+                        font_size: sp(16)
+                        background_normal: ""
+                        background_color: (0.45, 0.65, 0.95, 1)
+                        color: (0.05, 0.08, 0.12, 1)
+                        on_release: root.login_as_guest()
+
+                    Button:
                         text: "Forgot Password?"
                         size_hint_y: None
                         height: dp(40)
@@ -529,8 +539,7 @@
 
                 TextInput:
                     id: phone_input
-                    hint_text: "Phone (10 digits)"
-                    input_filter: "int"
+                    hint_text: "Username"
                     size_hint_y: None
                     height: dp(50)
                     font_size: "18sp"
@@ -545,6 +554,38 @@
                     font_size: "18sp"
                     background_color: (1, 1, 1, 0.85)
                     foreground_color: (0, 0, 0, 1)
+
+                Button:
+                    text: "Login via Gmail"
+                    size_hint_y: None
+                    height: dp(46)
+                    font_size: "17sp"
+                    background_normal: ""
+                    background_color: (0.96, 0.58, 0.17, 1)
+                    on_release: root.social_login("gmail")
+
+                Button:
+                    text: "Login via FB / Insta"
+                    size_hint_y: None
+                    height: dp(46)
+                    font_size: "17sp"
+                    background_normal: ""
+                    background_color: (0.25, 0.45, 0.95, 1)
+                    on_release: root.social_login("fb/insta")
+
+                Spinner:
+                    id: country_spinner
+                    text: "Select Country"
+                    values: root.country_values()
+                    size_hint_y: None
+                    height: dp(50)
+
+                Spinner:
+                    id: gender_spinner
+                    text: "male"
+                    values: ["male", "female", "cross"]
+                    size_hint_y: None
+                    height: dp(50)
 
                 RelativeLayout:
                     size_hint_y: None
@@ -590,11 +631,159 @@
                         background_color: (0.3, 0.7, 0.3, 1)
                         on_release: root.save_profile()
 
-        Button:
-            text: "Back"
-            size_hint: None, None
-            size: dp(90), dp(42)
-            pos_hint: {"x": 0.02, "y": 0.02}
-            background_color: (0.15, 0.15, 0.15, 0.8)
-            font_size: "16sp"
-            on_release: app.root.current = "welcome"
+<ChooseScreen>:
+    name: "choose"
+    FloatLayout:
+        BoxLayout:
+            size_hint: 1, None
+            height: dp(56)
+            pos_hint: {"top": 1}
+            padding: dp(10)
+            spacing: dp(10)
+
+            Label:
+                text: "Choose"
+                size_hint_x: 0.35
+                color: 1, 1, 1, 1
+
+            Spinner:
+                id: pref_spinner
+                text: "both"
+                values: ["male", "female", "both"]
+                size_hint_x: 0.25
+                on_text: root.set_preference(self.text)
+
+            Button:
+                text: "Subscribe"
+                size_hint_x: 0.2
+                on_release: root.subscribe()
+
+            Button:
+                text: "Logout"
+                size_hint_x: 0.2
+                on_release: root.logout()
+
+        BoxLayout:
+            orientation: "vertical"
+            size_hint: 0.92, 0.72
+            pos_hint: {"center_x": 0.5, "center_y": 0.5}
+            padding: dp(14)
+            spacing: dp(10)
+            canvas.before:
+                Color:
+                    rgba: 0, 0, 0, 0.45
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [18]
+
+            BoxLayout:
+                size_hint_y: None
+                height: dp(32)
+                Label:
+                    text: root.current_name
+                    halign: "left"
+                    valign: "middle"
+                    text_size: self.size
+                Label:
+                    text: root.current_country
+                    halign: "right"
+                    valign: "middle"
+                    text_size: self.size
+
+            AsyncImage:
+                source: root.current_image_url if root.current_image_url else ""
+                allow_stretch: True
+                keep_ratio: True
+                size_hint_y: None
+                height: dp(220)
+
+            Label:
+                text: root.current_desc
+                valign: "top"
+                text_size: self.width, None
+
+            BoxLayout:
+                size_hint_y: None
+                height: dp(52)
+                spacing: dp(10)
+                Button:
+                    text: "Swipe Left"
+                    on_release: root.swipe_left()
+                Button:
+                    text: "Swipe Right"
+                    on_release: root.swipe_right()
+
+            BoxLayout:
+                size_hint_y: None
+                height: dp(56)
+                spacing: dp(10)
+                Button:
+                    text: "Chat"
+                    on_release: root.start_chat("text")
+                Button:
+                    text: "Video"
+                    on_release: root.start_chat("video")
+
+<ChatScreen>:
+    name: "chat"
+    BoxLayout:
+        orientation: "vertical"
+        padding: dp(10)
+        spacing: dp(8)
+
+        BoxLayout:
+            size_hint_y: None
+            height: dp(44)
+            spacing: dp(10)
+            Button:
+                text: "Back"
+                size_hint_x: None
+                width: dp(90)
+                on_release: root.go_back()
+            Label:
+                text: "Chat (" + root.mode + ")"
+
+        ScrollView:
+            do_scroll_x: False
+            GridLayout:
+                id: messages_box
+                cols: 1
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: dp(6)
+
+        BoxLayout:
+            size_hint_y: None
+            height: dp(46)
+            spacing: dp(8)
+            TextInput:
+                id: message_input
+                hint_text: "Type message"
+                multiline: False
+            Button:
+                text: "Send"
+                size_hint_x: None
+                width: dp(90)
+                on_release: root.send_message()
+
+<VideoScreen>:
+    name: "video"
+    BoxLayout:
+        orientation: "vertical"
+        padding: dp(14)
+        spacing: dp(10)
+        BoxLayout:
+            size_hint_y: None
+            height: dp(44)
+            spacing: dp(10)
+            Button:
+                text: "Back"
+                size_hint_x: None
+                width: dp(90)
+                on_release: root.go_back()
+            Label:
+                text: "Video chat"
+
+        Label:
+            text: "Video chat session: " + str(root.session_id) + \"\\n\\n\" + \\\n+                  \"Note: Real video chat requires WebRTC/Agora/Twilio integration and Android permissions.\"\n*** End Patch"}}

@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+import os
+from typing import Any, Dict, Optional
+
+import requests
+
+from frontend_app.utils.storage import get_token
+
+
+class ApiError(RuntimeError):
+    pass
+
+
+def _base_url() -> str:
+    return os.getenv("BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
+
+
+def _headers(auth: bool = False) -> Dict[str, str]:
+    h = {"content-type": "application/json"}
+    if auth:
+        tok = get_token()
+        if tok:
+            h["authorization"] = f"Bearer {tok}"
+    return h
+
+
+def _raise(resp: requests.Response) -> None:
+    try:
+        data = resp.json()
+    except Exception:
+        data = None
+    if resp.status_code >= 300:
+        msg = None
+        if isinstance(data, dict):
+            msg = data.get("detail") or data.get("message")
+        raise ApiError(msg or f"Request failed ({resp.status_code})")
+
+
+def api_register(**payload: Any) -> Dict[str, Any]:
+    r = requests.post(f"{_base_url()}/api/auth/register", json=payload, headers=_headers(), timeout=20)
+    _raise(r)
+    return r.json()
+
+
+def api_login_request_otp(*, identifier: str, password: str) -> Dict[str, Any]:
+    r = requests.post(
+        f"{_base_url()}/api/auth/login/request-otp",
+        json={"identifier": identifier, "password": password},
+        headers=_headers(),
+        timeout=20,
+    )
+    _raise(r)
+    return r.json()
+
+
+def api_login_verify_otp(*, identifier: str, password: str, otp: str) -> Dict[str, Any]:
+    r = requests.post(
+        f"{_base_url()}/api/auth/login/verify-otp",
+        json={"identifier": identifier, "password": password, "otp": otp},
+        headers=_headers(),
+        timeout=20,
+    )
+    _raise(r)
+    return r.json()
+
+
+def api_guest() -> Dict[str, Any]:
+    r = requests.post(f"{_base_url()}/api/auth/guest", json={}, headers=_headers(), timeout=20)
+    _raise(r)
+    return r.json()
+
+
+def api_next_profile(*, preference: str) -> Dict[str, Any]:
+    r = requests.get(
+        f"{_base_url()}/api/profiles/next",
+        params={"preference": preference},
+        headers=_headers(auth=True),
+        timeout=20,
+    )
+    _raise(r)
+    return r.json()
+
+
+def api_swipe(*, target_user_id: int, direction: str) -> Dict[str, Any]:
+    r = requests.post(
+        f"{_base_url()}/api/profiles/swipe",
+        json={"target_user_id": target_user_id, "direction": direction},
+        headers=_headers(auth=True),
+        timeout=20,
+    )
+    _raise(r)
+    return r.json()
+
+
+def api_start_session(*, target_user_id: int, mode: str) -> Dict[str, Any]:
+    r = requests.post(
+        f"{_base_url()}/api/sessions/start",
+        json={"target_user_id": target_user_id, "mode": mode},
+        headers=_headers(auth=True),
+        timeout=20,
+    )
+    _raise(r)
+    return r.json()
+
+
+def api_get_messages(*, session_id: int) -> Dict[str, Any]:
+    r = requests.get(
+        f"{_base_url()}/api/messages",
+        params={"session_id": session_id},
+        headers=_headers(auth=True),
+        timeout=20,
+    )
+    _raise(r)
+    return r.json()
+
+
+def api_post_message(*, session_id: int, message: str) -> Dict[str, Any]:
+    r = requests.post(
+        f"{_base_url()}/api/messages",
+        params={"session_id": session_id, "message": message},
+        headers=_headers(auth=True),
+        timeout=20,
+    )
+    _raise(r)
+    return r.json()
+
+
+def api_demo_subscribe() -> Dict[str, Any]:
+    r = requests.post(
+        f"{_base_url()}/api/subscription/demo-activate",
+        json={},
+        headers=_headers(auth=True),
+        timeout=20,
+    )
+    _raise(r)
+    return r.json()
+
