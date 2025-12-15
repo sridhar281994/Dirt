@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional
@@ -93,9 +94,9 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
         raise HTTPException(400, "Gender must be male, female, or cross.")
 
     if email and db.query(User).filter(User.email == email).first():
-        raise HTTPException(400, "Email already registered.")
+        raise HTTPException(400, "entry already available")
     if username and db.query(User).filter(User.username == username).first():
-        raise HTTPException(400, "Username already registered.")
+        raise HTTPException(400, "entry already available")
 
     # Multi-byte safe password truncation for bcrypt (max 72 bytes)
     safe_password = payload.password.strip().encode("utf-8")[:72].decode("utf-8", errors="ignore")
@@ -210,11 +211,29 @@ def guest_login(db: Session = Depends(get_db)):
     hashed = bcrypt.hashpw(pwd_bytes, salt)
     password_hash = hashed.decode('utf-8')
 
+    # Determine next guest number
+    existing_guests = db.query(User.username).filter(User.username.like("guest_%")).all()
+    max_num = 0
+    for row in existing_guests:
+        uname = row[0]
+        m = re.match(r"^guest_(\d+)$", uname)
+        if m:
+            try:
+                num = int(m.group(1))
+                if num > max_num:
+                    max_num = num
+            except ValueError:
+                pass
+    
+    new_num = max_num + 1
+    new_username = f"guest_{new_num}"
+    new_name = f"Guest {new_num}"
+
     guest = User(
         email=None,
-        username=f"guest_{secrets.token_hex(4)}",
+        username=new_username,
         password_hash=password_hash,
-        name="Guest",
+        name=new_name,
         gender="male",
         country="",
         description="",
@@ -240,3 +259,64 @@ def guest_login(db: Session = Depends(get_db)):
             "is_guest": True,
         },
     }
+
+
+class ForgotPasswordRequestIn(BaseModel):
+    identifier: str
+
+@router.post("/forgot-password/request-otp")
+def forgot_password_request_otp(payload: ForgotPasswordRequestIn, db: Session = Depends(get_db)):
+    ident = payload.identifier.strip().lower()
+    if not ident:
+        raise HTTPException(400, "Identifier required")
+
+    if "@" in ident:
+        user = db.query(User).filter(User.email == ident).first()
+    else:
+        user = db.query(User).filter(User.username == ident).first()
+
+    if not user:
+        raise HTTPException(404, "Account not found.")
+
+    if not user.email:
+        raise HTTPException(400, "This account has no email; OTP cannot be delivered.")
+
+    otp_issue(identifier=f"reset:{user.id}", to_email=user.email)
+    return {"ok": True, "message": "OTP sent to your email."}
+
+
+class ForgotPasswordResetIn(BaseModel):
+    identifier: str
+    otp: str
+    new_password: str
+
+@router.post("/forgot-password/reset")
+def forgot_password_reset(payload: ForgotPasswordResetIn, db: Session = Depends(get_db)):
+    ident = payload.identifier.strip().lower()
+    
+    if "@" in ident:
+        user = db.query(User).filter(User.email == ident).first()
+    else:
+        user = db.query(User).filter(User.username == ident).first()
+
+    if not user:
+        raise HTTPException(404, "Account not found.")
+
+    # Verify OTP
+    ok = otp_verify(identifier=f"reset:{user.id}", otp=payload.otp.strip())
+    if not ok:
+        raise HTTPException(401, "Invalid/expired OTP.")
+
+    if len(payload.new_password.strip()) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters.")
+
+    # Update Password
+    safe_password = payload.new_password.strip().encode("utf-8")[:72].decode("utf-8", errors="ignore")
+    pwd_bytes = safe_password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(pwd_bytes, salt)
+    user.password_hash = hashed.decode('utf-8')
+    
+    db.commit()
+    return {"ok": True, "message": "Password updated successfully."}
+

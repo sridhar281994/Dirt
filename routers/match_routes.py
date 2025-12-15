@@ -61,6 +61,12 @@ def get_next_profile(
     swiped_ids = [r[0] for r in db.query(Swipe.target_user_id).filter(Swipe.user_id == user.id).all()]
 
     q = db.query(User).filter(User.id != user.id)
+    
+    # Task 3: "validity" of 10 hours for online status
+    # We interpret this as: only show users created (or active) in the last 10 hours.
+    since = datetime.utcnow() - timedelta(hours=10)
+    q = q.filter(User.created_at >= since)
+
     if swiped_ids:
         q = q.filter(~User.id.in_(swiped_ids))
     if pref != "both":

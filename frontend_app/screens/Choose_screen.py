@@ -50,11 +50,42 @@ class ChooseScreen(Screen):
     current_desc = StringProperty("")
     current_image_url = StringProperty("")
     
+    # Logged-in user info
+    my_name = StringProperty("")
+    my_country = StringProperty("")
+    
     # Touch handling
     _touch_start_x = None
 
     def on_pre_enter(self, *args):
+        # Update logged-in user info
+        u = get_user() or {}
+        self.my_name = str(u.get("name") or "User")
+        self.my_country = str(u.get("country") or "")
+        
         self.refresh_profile()
+        # Show hint popup on enter
+        Clock.schedule_once(lambda dt: self._show_swipe_hint(), 0.5)
+
+    def _show_swipe_hint(self):
+        _popup("Hint", "Swipe Left/Right to browse profiles.")
+
+    def on_settings_select(self, text):
+        if text == "Subscribe":
+            self.subscribe("text_hour") # Default or show options? 
+            # User interface has separate buttons for plans. 
+            # Maybe show a popup with plans?
+            _popup("Info", "Select a plan from the bottom menu.")
+        elif text == "Change Password":
+            if self.manager:
+                self.manager.current = "forgot_password"
+        elif text == "Logout":
+            self.logout()
+        
+        # Reset spinner text
+        spinner = self.ids.get("settings_spinner")
+        if spinner:
+            spinner.text = "⚙️"
 
     def set_preference(self, value: str) -> None:
         v = (value or "").strip().lower()

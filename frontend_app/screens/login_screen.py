@@ -136,7 +136,7 @@ class LoginScreen(Screen):
                 def after(*_):
                     if self.manager:
                         self.manager.current = "choose"
-                    _popup("Success", "Login successful.")
+                    _popup("Success", "Swipe Left/Right to chat.")
 
                 Clock.schedule_once(after, 0)
 
