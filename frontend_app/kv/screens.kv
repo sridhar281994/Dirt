@@ -769,21 +769,28 @@
 
 <VideoScreen>:
     name: "video"
+
     BoxLayout:
         orientation: "vertical"
         padding: dp(14)
         spacing: dp(10)
+
         BoxLayout:
             size_hint_y: None
             height: dp(44)
             spacing: dp(10)
+
             Button:
                 text: "Back"
                 size_hint_x: None
                 width: dp(90)
                 on_release: root.go_back()
+
             Label:
                 text: "Video chat"
 
         Label:
-            text: "Video chat session: " + str(root.session_id) + \"\\n\\n\" + \\\n+                  \"Note: Real video chat requires WebRTC/Agora/Twilio integration and Android permissions.\"\n*** End Patch"}}
+            text: "Video chat session: {}\n\nNote: Real video chat requires WebRTC / Agora / Twilio integration and Android permissions.".format(root.session_id)
+            halign: "center"
+            valign: "middle"
+            text_size: self.width, None
