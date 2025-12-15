@@ -1,51 +1,212 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from database import get_db
-from models import User
-from utils.otp_utils import generate_otp, verify_otp
+from __future__ import annotations
+
 from datetime import datetime, timedelta
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from database import get_db
+from models import ChatMessage, ChatSession, Swipe, User
+from routers.auth import get_current_user
 
 
-router = APIRouter()
+router = APIRouter(tags=["match"])
 
 
-@router.post("/send-otp")
-def send_otp(email: str):
-otp = generate_otp(email)
-return {"message": "OTP sent"}
+class SwipeIn(BaseModel):
+    target_user_id: int
+    direction: str  # "left" | "right"
 
 
+class StartSessionIn(BaseModel):
+    target_user_id: int
+    mode: str  # "text" | "video"
 
 
-@router.post("/verify-otp")
-def verify(email: str, otp: int, db: Session = Depends(get_db)):
-if not verify_otp(email, otp):
-raise HTTPException(status_code=401, detail="Invalid OTP")
-return {"message": "Login successful"}
+def _norm_gender(value: str) -> str:
+    return (value or "").strip().lower()
 
 
+def _is_opposite_or_cross(*, me_gender: str, other_gender: str) -> bool:
+    me = _norm_gender(me_gender)
+    other = _norm_gender(other_gender)
+    if other == "cross":
+        return True
+    if me in {"male", "female"} and other in {"male", "female"}:
+        return me != other
+    return False
 
 
-@router.post("/match")
-def match_user(user_id: int, preference: str, db: Session = Depends(get_db)):
-user = db.query(User).filter(User.id == user_id).first()
-if not user:
-raise HTTPException(status_code=404, detail="User not found")
+@router.get("/profiles/next")
+def get_next_profile(
+    preference: str = "both",
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Returns a single profile card for swipe UI.
+    Filters by preference ('male'|'female'|'both'), excludes self, and excludes already swiped.
+    """
+    pref = _norm_gender(preference)
+    if pref not in {"male", "female", "both"}:
+        raise HTTPException(400, "Invalid preference.")
+
+    swiped_ids = [r[0] for r in db.query(Swipe.target_user_id).filter(Swipe.user_id == user.id).all()]
+
+    q = db.query(User).filter(User.id != user.id)
+    if swiped_ids:
+        q = q.filter(~User.id.in_(swiped_ids))
+    if pref != "both":
+        q = q.filter(User.gender == pref)
+
+    # Simple ordering (new users first). Replace with better ranking later.
+    candidate: Optional[User] = q.order_by(User.created_at.desc()).first()
+    if not candidate:
+        return {"ok": True, "profile": None}
+
+    return {
+        "ok": True,
+        "profile": {
+            "id": candidate.id,
+            "name": candidate.name,
+            "country": candidate.country,
+            "gender": candidate.gender,
+            "description": candidate.description or "",
+            "image_url": candidate.image_url or "",
+        },
+    }
 
 
-if preference != "Both" and not user.is_subscribed:
-raise HTTPException(status_code=403, detail="Subscription required")
+@router.post("/profiles/swipe")
+def swipe_profile(
+    payload: SwipeIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    direction = (payload.direction or "").lower().strip()
+    if direction not in {"left", "right"}:
+        raise HTTPException(400, "direction must be 'left' or 'right'")
+
+    target = db.get(User, payload.target_user_id)
+    if not target or target.id == user.id:
+        raise HTTPException(404, "Target not found")
+
+    rec = Swipe(user_id=user.id, target_user_id=target.id, direction=direction)
+    db.add(rec)
+    db.commit()
+    return {"ok": True}
 
 
-# Dummy match logic
-return {"matched": True, "chat_type": preference}
+@router.post("/sessions/start")
+def start_session(
+    payload: StartSessionIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    mode = (payload.mode or "").strip().lower()
+    if mode not in {"text", "video"}:
+        raise HTTPException(400, "mode must be 'text' or 'video'")
+
+    other = db.get(User, payload.target_user_id)
+    if not other or other.id == user.id:
+        raise HTTPException(404, "Target not found")
+
+    # Gating rule:
+    # - Same gender: allowed
+    # - Opposite gender OR chatting with 'cross': requires subscription
+    if _is_opposite_or_cross(me_gender=user.gender, other_gender=other.gender) and not user.is_subscribed:
+        raise HTTPException(403, "Subscription required for opposite/cross gender chat.")
+
+    session = ChatSession(mode=mode, user_a_id=user.id, user_b_id=other.id)
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+
+    return {
+        "ok": True,
+        "session": {
+            "id": session.id,
+            "mode": session.mode,
+            "user_a_id": session.user_a_id,
+            "user_b_id": session.user_b_id,
+            "created_at": session.created_at.isoformat(),
+        },
+    }
 
 
+@router.post("/messages")
+def post_message(
+    session_id: int,
+    message: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    session = db.get(ChatSession, session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    if user.id not in {session.user_a_id, session.user_b_id}:
+        raise HTTPException(403, "Not a participant")
+    if not message or not message.strip():
+        raise HTTPException(400, "Message required")
+
+    rec = ChatMessage(session_id=session.id, sender_id=user.id, message=message.strip())
+    db.add(rec)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/messages")
+def get_messages(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    session = db.get(ChatSession, session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    if user.id not in {session.user_a_id, session.user_b_id}:
+        raise HTTPException(403, "Not a participant")
+
+    msgs = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.session_id == session.id)
+        .order_by(ChatMessage.created_at.asc())
+        .all()
+    )
+    return {
+        "ok": True,
+        "messages": [
+            {
+                "id": m.id,
+                "sender_id": m.sender_id,
+                "message": m.message,
+                "created_at": m.created_at.isoformat(),
+            }
+            for m in msgs
+        ],
+    }
+
+
+@router.post("/subscription/demo-activate")
+def demo_activate_subscription(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Demo-only endpoint: marks user as subscribed.
+    Replace with Google Play subscription verification later.
+    """
+    user.is_subscribed = True
+    db.add(user)
+    db.commit()
+    return {"ok": True, "is_subscribed": True}
 
 
 @router.delete("/cleanup-chats")
 def cleanup_old_chats(db: Session = Depends(get_db)):
-expiry = datetime.utcnow() - timedelta(hours=48)
-deleted = db.query(ChatHistory).filter(ChatHistory.created_at < expiry).delete()
-db.commit()
-return {"deleted": deleted}
+    expiry = datetime.utcnow() - timedelta(hours=48)
+    deleted = db.query(ChatMessage).filter(ChatMessage.created_at < expiry).delete()
+    db.commit()
+    return {"ok": True, "deleted": int(deleted or 0)}
