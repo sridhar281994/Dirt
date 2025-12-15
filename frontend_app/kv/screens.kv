@@ -495,6 +495,13 @@
                     background_color: (0.2, 0.4, 0.9, 1)
                     on_release: root.social_login("fb/insta")
 
+                Button:
+                    text: "Back"
+                    size_hint_y: None
+                    height: dp(44)
+                    background_color: (0.7, 0.2, 0.2, 1)
+                    on_release: root.go_back()
+
 <ChooseScreen>:
     name: "choose"
     FloatLayout:

@@ -43,6 +43,7 @@ def api_register(**payload: Any) -> Dict[str, Any]:
         json=payload,
         headers=_headers(),
         timeout=20,
+        verify=False,
     )
     _raise(r)
     return r.json()
@@ -54,6 +55,7 @@ def api_login_request_otp(*, identifier: str, password: str) -> Dict[str, Any]:
         json={"identifier": identifier, "password": password},
         headers=_headers(),
         timeout=20,
+        verify=False,
     )
     _raise(r)
     return r.json()
@@ -65,6 +67,7 @@ def api_login_verify_otp(*, identifier: str, password: str, otp: str) -> Dict[st
         json={"identifier": identifier, "password": password, "otp": otp},
         headers=_headers(),
         timeout=20,
+        verify=False,
     )
     _raise(r)
     return r.json()
@@ -76,6 +79,7 @@ def api_guest() -> Dict[str, Any]:
         json={},
         headers=_headers(),
         timeout=20,
+        verify=False,
     )
     _raise(r)
     return r.json()
@@ -87,6 +91,7 @@ def api_next_profile(*, preference: str) -> Dict[str, Any]:
         params={"preference": preference},
         headers=_headers(auth=True),
         timeout=20,
+        verify=False,
     )
     _raise(r)
     return r.json()
@@ -98,6 +103,7 @@ def api_swipe(*, target_user_id: int, direction: str) -> Dict[str, Any]:
         json={"target_user_id": target_user_id, "direction": direction},
         headers=_headers(auth=True),
         timeout=20,
+        verify=False,
     )
     _raise(r)
     return r.json()
@@ -109,6 +115,7 @@ def api_start_session(*, target_user_id: int, mode: str) -> Dict[str, Any]:
         json={"target_user_id": target_user_id, "mode": mode},
         headers=_headers(auth=True),
         timeout=20,
+        verify=False,
     )
     _raise(r)
     return r.json()
@@ -120,6 +127,7 @@ def api_get_messages(*, session_id: int) -> Dict[str, Any]:
         params={"session_id": session_id},
         headers=_headers(auth=True),
         timeout=20,
+        verify=False,
     )
     _raise(r)
     return r.json()
@@ -131,6 +139,7 @@ def api_post_message(*, session_id: int, message: str) -> Dict[str, Any]:
         json={"session_id": session_id, "message": message},
         headers=_headers(auth=True),
         timeout=20,
+        verify=False,
     )
     _raise(r)
     return r.json()
@@ -142,6 +151,7 @@ def api_demo_subscribe() -> Dict[str, Any]:
         json={},
         headers=_headers(auth=True),
         timeout=20,
+        verify=False,
     )
     _raise(r)
     return r.json()
@@ -153,6 +163,7 @@ def api_verify_subscription(*, purchase_token: str, plan_key: str) -> bool:
         json={"purchase_token": purchase_token, "plan_key": plan_key},
         headers=_headers(auth=True),
         timeout=20,
+        verify=False,
     )
     _raise(r)
     return r.json().get("valid", False)
@@ -164,6 +175,7 @@ def api_get_public_messages(*, limit: int = 500) -> Dict[str, Any]:
         params={"limit": limit},
         headers=_headers(auth=True),
         timeout=20,
+        verify=False,
     )
     _raise(r)
     return r.json()
@@ -175,6 +187,7 @@ def api_post_public_message(*, message: str, image_url: str = None) -> Dict[str,
         json={"message": message, "image_url": image_url},
         headers=_headers(auth=True),
         timeout=20,
+        verify=False,
     )
     _raise(r)
     return r.json()
