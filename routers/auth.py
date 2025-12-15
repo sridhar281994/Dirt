@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import jwt
-from passlib.hash import bcrypt
+import bcrypt
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
@@ -100,10 +100,15 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
     # Multi-byte safe password truncation for bcrypt (max 72 bytes)
     safe_password = payload.password.strip().encode("utf-8")[:72].decode("utf-8", errors="ignore")
 
+    pwd_bytes = safe_password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(pwd_bytes, salt)
+    password_hash = hashed.decode('utf-8')
+
     user = User(
         email=email,
         username=username,
-        password_hash=bcrypt.hash(safe_password),
+        password_hash=password_hash,
         name=payload.name.strip(),
         country=payload.country.strip(),
         gender=gender,
@@ -137,7 +142,7 @@ def login_request_otp(payload: LoginOtpRequestIn, db: Session = Depends(get_db))
 
     # Truncate input password to 72 bytes for bcrypt verification
     login_password = payload.password.strip().encode("utf-8")[:72].decode("utf-8", errors="ignore")
-    if not bcrypt.verify(login_password, user.password_hash):
+    if not bcrypt.checkpw(login_password.encode('utf-8'), user.password_hash.encode('utf-8')):
         raise HTTPException(401, "Incorrect password.")
 
     if not user.email:
@@ -167,7 +172,7 @@ def login_verify_otp(payload: LoginVerifyOtpIn, db: Session = Depends(get_db)):
 
     # Truncate input password to 72 bytes for bcrypt verification
     login_password = payload.password.strip().encode("utf-8")[:72].decode("utf-8", errors="ignore")
-    if not bcrypt.verify(login_password, user.password_hash):
+    if not bcrypt.checkpw(login_password.encode('utf-8'), user.password_hash.encode('utf-8')):
         raise HTTPException(401, "Incorrect password.")
 
     ok = otp_verify(identifier=f"user:{user.id}", otp=payload.otp.strip())
@@ -200,10 +205,15 @@ def guest_login(db: Session = Depends(get_db)):
     random_pass = secrets.token_hex(16)[:16]
     safe_password = random_pass.encode("utf-8")[:72].decode("utf-8", errors="ignore")
 
+    pwd_bytes = safe_password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(pwd_bytes, salt)
+    password_hash = hashed.decode('utf-8')
+
     guest = User(
         email=None,
         username=f"guest_{secrets.token_hex(4)}",
-        password_hash=bcrypt.hash(safe_password),
+        password_hash=password_hash,
         name="Guest",
         gender="male",
         country="",

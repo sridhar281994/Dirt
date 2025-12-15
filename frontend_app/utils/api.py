@@ -7,8 +7,6 @@ import urllib3
 
 from frontend_app.utils.storage import get_token
 
-# Disable SSL warnings (testing only)
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class ApiError(RuntimeError):
     pass
@@ -45,7 +43,6 @@ def api_register(**payload: Any) -> Dict[str, Any]:
         json=payload,
         headers=_headers(),
         timeout=20,
-        verify=False  # Disable SSL verification
     )
     _raise(r)
     return r.json()
@@ -57,7 +54,6 @@ def api_login_request_otp(*, identifier: str, password: str) -> Dict[str, Any]:
         json={"identifier": identifier, "password": password},
         headers=_headers(),
         timeout=20,
-        verify=False
     )
     _raise(r)
     return r.json()
@@ -69,7 +65,6 @@ def api_login_verify_otp(*, identifier: str, password: str, otp: str) -> Dict[st
         json={"identifier": identifier, "password": password, "otp": otp},
         headers=_headers(),
         timeout=20,
-        verify=False
     )
     _raise(r)
     return r.json()
@@ -81,7 +76,6 @@ def api_guest() -> Dict[str, Any]:
         json={},
         headers=_headers(),
         timeout=20,
-        verify=False
     )
     _raise(r)
     return r.json()
@@ -93,7 +87,6 @@ def api_next_profile(*, preference: str) -> Dict[str, Any]:
         params={"preference": preference},
         headers=_headers(auth=True),
         timeout=20,
-        verify=False
     )
     _raise(r)
     return r.json()
@@ -105,7 +98,6 @@ def api_swipe(*, target_user_id: int, direction: str) -> Dict[str, Any]:
         json={"target_user_id": target_user_id, "direction": direction},
         headers=_headers(auth=True),
         timeout=20,
-        verify=False
     )
     _raise(r)
     return r.json()
@@ -117,7 +109,6 @@ def api_start_session(*, target_user_id: int, mode: str) -> Dict[str, Any]:
         json={"target_user_id": target_user_id, "mode": mode},
         headers=_headers(auth=True),
         timeout=20,
-        verify=False
     )
     _raise(r)
     return r.json()
@@ -129,7 +120,6 @@ def api_get_messages(*, session_id: int) -> Dict[str, Any]:
         params={"session_id": session_id},
         headers=_headers(auth=True),
         timeout=20,
-        verify=False
     )
     _raise(r)
     return r.json()
@@ -138,10 +128,9 @@ def api_get_messages(*, session_id: int) -> Dict[str, Any]:
 def api_post_message(*, session_id: int, message: str) -> Dict[str, Any]:
     r = requests.post(
         f"{_base_url()}/api/messages",
-        params={"session_id": session_id, "message": message},
+        json={"session_id": session_id, "message": message},
         headers=_headers(auth=True),
         timeout=20,
-        verify=False
     )
     _raise(r)
     return r.json()
@@ -153,7 +142,6 @@ def api_demo_subscribe() -> Dict[str, Any]:
         json={},
         headers=_headers(auth=True),
         timeout=20,
-        verify=False
     )
     _raise(r)
     return r.json()
