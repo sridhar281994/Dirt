@@ -97,10 +97,13 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
     if username and db.query(User).filter(User.username == username).first():
         raise HTTPException(400, "Username already registered.")
 
+    # Multi-byte safe password truncation for bcrypt (max 72 bytes)
+    safe_password = payload.password.strip().encode("utf-8")[:72].decode("utf-8", errors="ignore")
+
     user = User(
         email=email,
         username=username,
-        password_hash=bcrypt.hash(payload.password.strip()[:72]),
+        password_hash=bcrypt.hash(safe_password),
         name=payload.name.strip(),
         country=payload.country.strip(),
         gender=gender,
@@ -132,7 +135,9 @@ def login_request_otp(payload: LoginOtpRequestIn, db: Session = Depends(get_db))
     if not user:
         raise HTTPException(404, "Account not found.")
 
-    if not bcrypt.verify(payload.password.strip(), user.password_hash):
+    # Truncate input password to 72 bytes for bcrypt verification
+    login_password = payload.password.strip().encode("utf-8")[:72].decode("utf-8", errors="ignore")
+    if not bcrypt.verify(login_password, user.password_hash):
         raise HTTPException(401, "Incorrect password.")
 
     if not user.email:
@@ -159,7 +164,10 @@ def login_verify_otp(payload: LoginVerifyOtpIn, db: Session = Depends(get_db)):
 
     if not user:
         raise HTTPException(404, "Account not found.")
-    if not bcrypt.verify(payload.password.strip(), user.password_hash):
+
+    # Truncate input password to 72 bytes for bcrypt verification
+    login_password = payload.password.strip().encode("utf-8")[:72].decode("utf-8", errors="ignore")
+    if not bcrypt.verify(login_password, user.password_hash):
         raise HTTPException(401, "Incorrect password.")
 
     ok = otp_verify(identifier=f"user:{user.id}", otp=payload.otp.strip())
@@ -187,12 +195,15 @@ def login_verify_otp(payload: LoginVerifyOtpIn, db: Session = Depends(get_db)):
 
 @router.post("/guest")
 def guest_login(db: Session = Depends(get_db)):
-    """Creates a lightweight guest user for "login as guest"."""
+    """Creates a lightweight guest user for 'login as guest'."""
+    # Generate a safe random password under 72 bytes
+    random_pass = secrets.token_hex(16)[:16]
+    safe_password = random_pass.encode("utf-8")[:72].decode("utf-8", errors="ignore")
 
     guest = User(
         email=None,
         username=f"guest_{secrets.token_hex(4)}",
-        password_hash=bcrypt.hash(secrets.token_hex(16)[:16]),
+        password_hash=bcrypt.hash(safe_password),
         name="Guest",
         gender="male",
         country="",
