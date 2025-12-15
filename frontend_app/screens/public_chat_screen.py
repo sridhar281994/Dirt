@@ -15,7 +15,7 @@ from frontend_app.utils.api import ApiError, api_get_public_messages, api_post_p
 
 class PublicChatScreen(Screen):
     def on_pre_enter(self, *args):
-        self.refresh_messages()
+        self.refresh_messages(scroll_to_bottom=True)
         # Start auto-refresh polling
         self._refresh_event = Clock.schedule_interval(self._refresh_loop, 5.0)
 
@@ -24,20 +24,20 @@ class PublicChatScreen(Screen):
             self._refresh_event.cancel()
 
     def _refresh_loop(self, dt):
-        self.refresh_messages()
+        self.refresh_messages(scroll_to_bottom=False)
 
-    def refresh_messages(self) -> None:
+    def refresh_messages(self, scroll_to_bottom: bool = False) -> None:
         def work():
             try:
                 data = api_get_public_messages(limit=500)
                 msgs = data.get("messages") or []
-                Clock.schedule_once(lambda *_: self._display_messages(msgs), 0)
+                Clock.schedule_once(lambda *_: self._display_messages(msgs, scroll_to_bottom), 0)
             except ApiError:
                 pass  # suppress errors in loop
 
         Thread(target=work, daemon=True).start()
 
-    def _display_messages(self, messages) -> None:
+    def _display_messages(self, messages, scroll_to_bottom: bool) -> None:
         box = self.ids.get("messages_box")
         if not box:
             return
@@ -60,6 +60,11 @@ class PublicChatScreen(Screen):
             # Dynamic height?
             # For now fixed height is fine for simple text
             box.add_widget(lbl)
+            
+        if scroll_to_bottom:
+            scroll = self.ids.get("messages_scroll")
+            if scroll:
+                scroll.scroll_y = 0
 
     def send_message(self) -> None:
         inp = self.ids.get("message_input")
@@ -68,15 +73,17 @@ class PublicChatScreen(Screen):
         text = inp.text.strip()
         if not text:
             return
+        
+        # Optimistic clear
+        inp.text = ""
 
         def work():
             try:
                 api_post_public_message(message=text)
-                Clock.schedule_once(lambda *_: self.refresh_messages(), 0)
+                Clock.schedule_once(lambda *_: self.refresh_messages(scroll_to_bottom=True), 0)
             except ApiError as exc:
                 print(f"Send error: {exc}")
 
-        inp.text = ""
         Thread(target=work, daemon=True).start()
 
     def go_back(self) -> None:

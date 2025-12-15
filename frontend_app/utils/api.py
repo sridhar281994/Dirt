@@ -73,6 +73,30 @@ def api_login_verify_otp(*, identifier: str, password: str, otp: str) -> Dict[st
     return r.json()
 
 
+def api_forgot_password_request_otp(*, identifier: str) -> Dict[str, Any]:
+    r = requests.post(
+        f"{_base_url()}/api/auth/forgot-password/request-otp",
+        json={"identifier": identifier},
+        headers=_headers(),
+        timeout=20,
+        verify=False,
+    )
+    _raise(r)
+    return r.json()
+
+
+def api_forgot_password_reset(*, identifier: str, otp: str, new_password: str) -> Dict[str, Any]:
+    r = requests.post(
+        f"{_base_url()}/api/auth/forgot-password/reset",
+        json={"identifier": identifier, "otp": otp, "new_password": new_password},
+        headers=_headers(),
+        timeout=20,
+        verify=False,
+    )
+    _raise(r)
+    return r.json()
+
+
 def api_guest() -> Dict[str, Any]:
     r = requests.post(
         f"{_base_url()}/api/auth/guest",

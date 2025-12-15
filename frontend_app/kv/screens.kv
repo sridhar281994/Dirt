@@ -528,7 +528,7 @@
                     size: self.size
 
             Label:
-                text: root.current_name or "Loading..."
+                text: root.my_name or "Loading..."
                 size_hint_x: 0.35
                 text_size: self.size
                 halign: "left"
@@ -536,7 +536,7 @@
                 shorten: True
 
             Label:
-                text: root.current_country or ""
+                text: root.my_country or ""
                 size_hint_x: 0.25
                 text_size: self.size
                 halign: "left"
@@ -549,11 +549,13 @@
                 values: ["male", "female", "both"]
                 size_hint_x: 0.2
 
-            Button:
-                text: "Logout"
+            Spinner:
+                id: settings_spinner
+                text: "⚙️"
+                values: ["Subscribe", "Change Password", "Logout"]
                 size_hint_x: 0.2
-                background_color: (0.8, 0.2, 0.2, 1)
-                on_release: root.logout()
+                background_color: (0.2, 0.2, 0.2, 1)
+                on_text: root.on_settings_select(self.text)
 
         # Main Card Area
         BoxLayout:
@@ -590,10 +592,10 @@
                     padding: dp(10), dp(10)
 
                 Label:
-                    text: "Swipe Left/Right to browse"
+                    text: "↔️"
+                    font_size: sp(30)
                     size_hint_y: None
-                    height: dp(20)
-                    font_size: sp(12)
+                    height: dp(40)
                     color: 0.8, 0.8, 0.8, 1
 
                 # Chat Buttons
@@ -748,6 +750,7 @@
                     bold: True
 
             ScrollView:
+                id: messages_scroll
                 do_scroll_x: False
                 canvas.before:
                     Color:
