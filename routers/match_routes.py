@@ -25,6 +25,11 @@ class StartSessionIn(BaseModel):
     mode: str  # "text" | "video"
 
 
+class MessageIn(BaseModel):
+    session_id: int
+    message: str
+
+
 def _norm_gender(value: str) -> str:
     return (value or "").strip().lower()
 
@@ -138,20 +143,19 @@ def start_session(
 
 @router.post("/messages")
 def post_message(
-    session_id: int,
-    message: str,
+    payload: MessageIn,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    session = db.get(ChatSession, session_id)
+    session = db.get(ChatSession, payload.session_id)
     if not session:
         raise HTTPException(404, "Session not found")
     if user.id not in {session.user_a_id, session.user_b_id}:
         raise HTTPException(403, "Not a participant")
-    if not message or not message.strip():
+    if not payload.message or not payload.message.strip():
         raise HTTPException(400, "Message required")
 
-    rec = ChatMessage(session_id=session.id, sender_id=user.id, message=message.strip())
+    rec = ChatMessage(session_id=session.id, sender_id=user.id, message=payload.message.strip())
     db.add(rec)
     db.commit()
     return {"ok": True}
