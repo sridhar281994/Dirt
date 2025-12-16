@@ -82,6 +82,7 @@ def get_next_profile(
         "ok": True,
         "profile": {
             "id": candidate.id,
+            "username": candidate.username or "",
             "name": candidate.name,
             "country": candidate.country,
             "gender": candidate.gender,
