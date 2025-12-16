@@ -24,8 +24,8 @@ from frontend_app.utils.storage import clear, get_user, set_user
 SUBSCRIPTION_PLANS = {
     "text_hour": 50,
     "text_10min": 10,
-    "voice_hour": 200,
-    "voice_10min": 30,
+    "video_hour": 200,
+    "video_10min": 30,
 }
 
 

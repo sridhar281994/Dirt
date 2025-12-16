@@ -669,6 +669,14 @@
                         text: "Video Chat"
                         on_release: root.start_video_chat()
 
+            # Random Video Chat Button (moved inside main content)
+            Button:
+                text: "Random Video Chat"
+                size_hint_y: None
+                height: dp(50)
+                background_color: (0.8, 0.2, 0.8, 1)
+                on_release: root.start_random_video_chat()
+
             # Public Chat & Subs
             BoxLayout:
                 orientation: "vertical"
@@ -697,22 +705,13 @@
                 BoxLayout:
                     spacing: dp(5)
                     Button:
-                        text: "Voice: ₹200/hr"
+                        text: "Video: ₹200/hr"
                         font_size: sp(12)
-                        on_release: root.subscribe("voice_hour")
+                        on_release: root.subscribe("video_hour")
                     Button:
-                        text: "Voice: ₹30/10m"
+                        text: "Video: ₹30/10m"
                         font_size: sp(12)
-                        on_release: root.subscribe("voice_10min")
-
-        # Random Video Chat Button
-        Button:
-            text: "Random Video Chat"
-            size_hint: 0.6, None
-            height: dp(50)
-            pos_hint: {"center_x": 0.5, "y": 0.02}
-            background_color: (0.8, 0.2, 0.8, 1)
-            on_release: root.start_random_video_chat()
+                        on_release: root.subscribe("video_10min")
 
 <ChatScreen>:
     name: "chat"
