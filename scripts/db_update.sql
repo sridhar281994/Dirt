@@ -31,6 +31,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_subscribed BOOLEAN;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP WITHOUT TIME ZONE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS free_video_total_count INTEGER;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS free_video_opposite_count INTEGER;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_on_call BOOLEAN;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITHOUT TIME ZONE;
 
 -- Apply defaults where missing
@@ -38,11 +39,13 @@ ALTER TABLE users ALTER COLUMN name SET DEFAULT 'User';
 ALTER TABLE users ALTER COLUMN is_subscribed SET DEFAULT FALSE;
 ALTER TABLE users ALTER COLUMN free_video_total_count SET DEFAULT 0;
 ALTER TABLE users ALTER COLUMN free_video_opposite_count SET DEFAULT 0;
+ALTER TABLE users ALTER COLUMN is_on_call SET DEFAULT FALSE;
 ALTER TABLE users ALTER COLUMN created_at SET DEFAULT NOW();
 
 -- Backfill counters if NULL (older rows)
 UPDATE users SET free_video_total_count = 0 WHERE free_video_total_count IS NULL;
 UPDATE users SET free_video_opposite_count = 0 WHERE free_video_opposite_count IS NULL;
+UPDATE users SET is_on_call = FALSE WHERE is_on_call IS NULL;
 
 -- Uniqueness + lookup indexes
 CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email_unique ON users (email);
