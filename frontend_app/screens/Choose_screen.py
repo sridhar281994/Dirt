@@ -46,6 +46,7 @@ class ChooseScreen(Screen):
     preference = StringProperty("both")  # male|female|both
     current_profile_id = NumericProperty(0)
     current_name = StringProperty("")
+    current_username = StringProperty("")
     current_country = StringProperty("")
     current_desc = StringProperty("")
     current_image_url = StringProperty("")
@@ -128,15 +129,38 @@ class ChooseScreen(Screen):
         if not prof:
             self.current_profile_id = 0
             self.current_name = ""
+            self.current_username = ""
             self.current_country = ""
             self.current_desc = ""
             self.current_image_url = ""
             return
         self.current_profile_id = int(prof.get("id") or 0)
         self.current_name = str(prof.get("name") or "")
+        self.current_username = str(prof.get("username") or "")
         self.current_country = str(prof.get("country") or "")
         self.current_desc = str(prof.get("description") or "")
-        self.current_image_url = str(prof.get("image_url") or "")
+        self.current_image_url = self._normalize_image_url(str(prof.get("image_url") or ""))
+
+    @staticmethod
+    def _normalize_image_url(url: str) -> str:
+        """
+        Allow backend to return:
+        - absolute URLs (https://...)
+        - absolute paths (/static/...)
+        - relative paths (static/...)
+        """
+        u = (url or "").strip()
+        if not u:
+            return ""
+        if "://" in u:
+            return u
+        # Use same env default used by API client
+        import os
+        base = os.getenv("BACKEND_URL", "https://dirt-0atr.onrender.com")
+        base = (base or "").rstrip("/")
+        if not u.startswith("/"):
+            u = "/" + u
+        return f"{base}{u}"
 
     def swipe_left(self) -> None:
         self._swipe("left")
