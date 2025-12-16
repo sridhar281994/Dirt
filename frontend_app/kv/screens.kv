@@ -872,8 +872,15 @@
                     font_size: sp(12)
                     background_color: (0.2, 0.8, 0.2, 1)
                     on_release: root.next_call()
+                Button:
+                    text: "Chat"
+                    size_hint_x: None
+                    width: dp(60)
+                    font_size: sp(12)
+                    background_color: (0.2, 0.6, 0.9, 1)
+                    on_release: root.open_chat()
                 Label:
-                    text: "connected to user"
+                    text: "connected to " + (root.match_username or "user")
                     bold: True
 
             Label:
