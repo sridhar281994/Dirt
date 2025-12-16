@@ -38,7 +38,7 @@ class UserMatchScreen(Screen):
             return
 
         for item in history:
-            # item = {user_id, name, image_url, last_seen, session_id, mode}
+            # item = {user_id, name, image_url, last_seen, session_id, mode, is_on_call, is_online}
             row = BoxLayout(size_hint_y=None, height=dp(80), spacing=dp(10), padding=dp(5))
             
             # Avatar
@@ -56,11 +56,30 @@ class UserMatchScreen(Screen):
             name_lbl.bind(size=name_lbl.setter('text_size'))
             info.add_widget(name_lbl)
             
+            # Status Notification
+            status_text = ""
+            status_color = (0.5, 0.5, 0.5, 1)
+            
+            if item.get("is_on_call"):
+                status_text = "Busy (On Call)"
+                status_color = (1, 0.3, 0.3, 1)
+            elif not item.get("is_online"):
+                status_text = "Offline"
+                status_color = (0.6, 0.6, 0.6, 1)
+            else:
+                status_text = "Online"
+                status_color = (0.2, 0.9, 0.2, 1)
+                
+            status_lbl = Label(text=status_text, font_size=sp(12), color=status_color, halign="left", valign="middle")
+            status_lbl.bind(size=status_lbl.setter('text_size'))
+            info.add_widget(status_lbl)
+
             last = str(item.get("last_seen") or "")
             if last:
                 last = last.replace("T", " ")[:16]
-            time_lbl = Label(text=last, font_size=sp(12), color=(0.7,0.7,0.7,1))
+            time_lbl = Label(text=last, font_size=sp(10), color=(0.7,0.7,0.7,1))
             info.add_widget(time_lbl)
+            
             row.add_widget(info)
 
             # Chat Button
@@ -82,20 +101,6 @@ class UserMatchScreen(Screen):
         if mode in {"text", "voice"} and not bool(u.get("is_subscribed")):
             return
         
-        # Determine target screen based on mode? 
-        # Actually ChatScreen handles text. VideoScreen handles video.
-        # But ChatScreen can show text logs for video sessions? Maybe not.
-        # Let's assume if mode is video, we might want to go to video screen or chat screen.
-        # Ideally, history allows resuming text chat.
-        # If the session was 'video', maybe we treat it as text chat about that call?
-        # Or just open chat screen. The backend supports 'text' messages on any session theoretically,
-        # but the ChatScreen header says "Chat (mode)".
-        
-        if mode == "video":
-            # If it's a video session, we might want to show history but maybe not "join call".
-            # For now, let's open ChatScreen so they can see logs if any.
-            pass
-
         chat = self.manager.get_screen("chat")
         chat.set_session(session_id=session_id, mode=mode)
         self.manager.current = "chat"

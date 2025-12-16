@@ -6,7 +6,7 @@ from kivy.clock import Clock
 from kivy.properties import BooleanProperty, NumericProperty, StringProperty
 from kivy.uix.screenmanager import Screen
 
-from frontend_app.utils.api import ApiError, api_video_match
+from frontend_app.utils.api import ApiError, api_video_match, api_video_end
 
 
 class VideoScreen(Screen):
@@ -93,6 +93,15 @@ class VideoScreen(Screen):
 
     def go_back(self):
         self._stop_timer()
+        
+        # End call in backend to clear busy status
+        def end_call_bg():
+            try:
+                api_video_end()
+            except Exception:
+                pass
+        Thread(target=end_call_bg, daemon=True).start()
+
         if self.manager:
             self.manager.current = "choose"
 
@@ -124,4 +133,3 @@ class VideoScreen(Screen):
             self.next_call()
             return False
         return True
-
