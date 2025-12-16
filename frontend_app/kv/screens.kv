@@ -873,16 +873,11 @@
                     background_color: (0.2, 0.8, 0.2, 1)
                     on_release: root.next_call()
                 Label:
-                    text: "Video Call"
+                    text: "connected to user"
                     bold: True
 
             Label:
-                text:
-                    ("Connected to: " + (root.match_name or "Searching...") +
-                    ("\n@" + root.match_username if root.match_username else "") +
-                    ("\n" + root.match_country if root.match_country else "") +
-                    ("\n\n" + root.match_desc if root.match_desc else "") +
-                    ("\n\nSession ID: " + str(root.session_id)))
+                text: ""
                 halign: "center"
                 font_size: sp(18)
             
