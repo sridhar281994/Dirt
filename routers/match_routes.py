@@ -88,13 +88,13 @@ def get_next_profile(
     if pref != "both":
         q = q.filter(User.gender == pref)
 
-    # Prefer unswiped first; if exhausted, loop by falling back to already-swiped users.
+    # Prefer unswiped first; if exhausted, loop by falling back to already-swiped users (randomly).
     candidate: Optional[User] = q.order_by(User.created_at.desc()).first()
     if not candidate:
         q2 = db.query(User).filter(User.id != user.id)
         if pref != "both":
             q2 = q2.filter(User.gender == pref)
-        candidate = q2.order_by(User.created_at.desc()).first()
+        candidate = q2.order_by(func.random()).first()
     if not candidate:
         return {"ok": True, "profile": None}
 
@@ -188,7 +188,11 @@ def video_match(
 
     me = _norm_gender(user.gender)
     desired_gender: Optional[str] = None
-    duration_seconds = 40
+    
+    # Duration logic: first 3 matches 40s, then 5s
+    # usage count is roughly free_video_total_count
+    match_count = user.free_video_total_count or 0
+    duration_seconds = 40 if match_count < 3 else 5
 
     if user.is_subscribed:
         if pref in {"male", "female"}:
