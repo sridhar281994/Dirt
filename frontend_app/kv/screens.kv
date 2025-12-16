@@ -877,12 +877,13 @@
                     bold: True
 
             Label:
-                text: ("Connected to: " + (root.match_name or "Searching...") +
-                      ("\n@" + root.match_username if root.match_username else "") +
-                      ("\n" + root.match_country if root.match_country else "") +
-                      ("\n\n" + root.match_desc if root.match_desc else "") +
-                      ("\n\nTime left: " + str(int(root.remaining_seconds)) + "s" if root.remaining_seconds else "\n\nTime left: 0s") +
-                      ("\n\nSession ID: " + str(root.session_id)))
+                text:
+                    ("Connected to: " + (root.match_name or "Searching...") +
+                    ("\n@" + root.match_username if root.match_username else "") +
+                    ("\n" + root.match_country if root.match_country else "") +
+                    ("\n\n" + root.match_desc if root.match_desc else "") +
+                    ("\n\nTime left: " + str(int(root.remaining_seconds)) + "s" if root.remaining_seconds else "\n\nTime left: 0s") +
+                    ("\n\nSession ID: " + str(root.session_id)))
                 halign: "center"
                 font_size: sp(18)
 
