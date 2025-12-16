@@ -84,6 +84,13 @@ class VideoScreen(Screen):
         # if user presses NEXT inside the video screen, we just request another random match.
         self.start_random(preference=self.last_preference)
 
+    def open_chat(self) -> None:
+        if not self.manager or self.session_id <= 0:
+            return
+        chat = self.manager.get_screen("chat")
+        chat.set_session(session_id=self.session_id, mode="text")
+        self.manager.current = "chat"
+
     def go_back(self):
         self._stop_timer()
         if self.manager:

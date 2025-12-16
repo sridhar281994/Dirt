@@ -68,6 +68,9 @@ class ChooseScreen(Screen):
         self.my_country = str(u.get("country") or "")
         self.my_desc = str(u.get("description") or "")
         
+        if not hasattr(self, "_next_profile_cache"):
+            self._next_profile_cache = None
+        
         self.refresh_profile()
 
     def on_settings_select(self, text):
@@ -96,9 +99,18 @@ class ChooseScreen(Screen):
             return
 
         self.preference = v
+        self._next_profile_cache = None
         self.refresh_profile()
 
     def refresh_profile(self) -> None:
+        # Check cache first
+        if getattr(self, "_next_profile_cache", None):
+            prof = self._next_profile_cache
+            self._next_profile_cache = None
+            self._set_profile(prof)
+            self._prefetch_next_profile()
+            return
+
         def work():
             try:
                 data = api_next_profile(preference=self.preference)
@@ -107,9 +119,23 @@ class ChooseScreen(Screen):
                     Clock.schedule_once(lambda *_: self._set_profile(None), 0)
                     return
                 Clock.schedule_once(lambda *_: self._set_profile(prof), 0)
+                # Prefetch next
+                Clock.schedule_once(lambda *_: self._prefetch_next_profile(), 0)
             except ApiError as exc:
                 _popup("Error", str(exc))
 
+        Thread(target=work, daemon=True).start()
+
+    def _prefetch_next_profile(self) -> None:
+        def work():
+            try:
+                data = api_next_profile(preference=self.preference)
+                prof = (data or {}).get("profile")
+                if prof:
+                    self._next_profile_cache = prof
+            except Exception:
+                pass
+        
         Thread(target=work, daemon=True).start()
 
     def _set_profile(self, prof: Optional[Dict[str, Any]]) -> None:
@@ -182,12 +208,16 @@ class ChooseScreen(Screen):
         if tid <= 0:
             return
 
+        # Optimistic UI: Load next profile immediately
+        self.refresh_profile()
+
         def work():
             try:
                 api_swipe(target_user_id=tid, direction=direction)
-                Clock.schedule_once(lambda *_: self.refresh_profile(), 0)
             except ApiError as exc:
-                _popup("Error", str(exc))
+                # Swipe failed, but we already moved on. 
+                # Ideally we might queue this or retry, but for now just log/ignore for UI speed.
+                pass
 
         Thread(target=work, daemon=True).start()
     
