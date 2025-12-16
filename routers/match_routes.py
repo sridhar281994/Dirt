@@ -78,11 +78,6 @@ def get_next_profile(
 
     q = db.query(User).filter(User.id != user.id)
     
-    # Task 3: "validity" of 10 hours for online status
-    # We interpret this as: only show users created (or active) in the last 10 hours.
-    # since = datetime.utcnow() - timedelta(hours=10)
-    # q = q.filter(User.created_at >= since)
-
     if swiped_ids:
         q = q.filter(~User.id.in_(swiped_ids))
     if pref != "both":
@@ -109,6 +104,7 @@ def get_next_profile(
             "description": candidate.description or "",
             "image_url": candidate.image_url or "",
             "is_online": _is_online(candidate),
+            "is_on_call": bool(candidate.is_on_call),
         },
     }
 
@@ -176,10 +172,8 @@ def video_match(
 ):
     """
     Random video matchmaking.
-    - If subscribed: respects preference (male|female|both)
-    - If not subscribed: connects randomly, with bias rules for opposite gender:
-        - first 3 matches: opposite gender (when possible)
-        - afterwards: opposite gender is rare
+    - Paid users: respects preference (male|female|both).
+    - Free users: forced to SAME gender.
     Returns a ChatSession(mode='video') plus Agora App ID from env.
     """
     pref = _norm_gender(payload.preference)
@@ -189,43 +183,57 @@ def video_match(
     me = _norm_gender(user.gender)
     desired_gender: Optional[str] = None
     
-    # Duration logic: first 3 matches 40s, then 5s
-    # usage count is roughly free_video_total_count
-    match_count = user.free_video_total_count or 0
-    duration_seconds = 40 if match_count < 3 else 5
+    # Mark user as on call
+    user.is_on_call = True
+    db.add(user)
+    db.commit()
 
     if user.is_subscribed:
+        # Paid: respect preference
         if pref in {"male", "female"}:
             desired_gender = pref
         else:
             desired_gender = None
     else:
-        # Free users: ignore requested preference (connect both genders randomly)
+        # Free: same gender only
         if me in {"male", "female"}:
-            opposite = "female" if me == "male" else "male"
-            if (user.free_video_opposite_count or 0) < 3:
-                desired_gender = opposite
-                user.free_video_opposite_count = int((user.free_video_opposite_count or 0) + 1)
-            else:
-                # "Very rare" opposite gender after first 3
-                desired_gender = opposite if random.random() < 0.10 else me
-            user.free_video_total_count = int((user.free_video_total_count or 0) + 1)
+            desired_gender = me
         else:
-            # 'cross' or unknown: just random
+            # cross/unknown -> random
             desired_gender = None
-            user.free_video_total_count = int((user.free_video_total_count or 0) + 1)
 
-        db.add(user)
-        db.commit()
-
-    q = db.query(User).filter(User.id != user.id)
+    q = db.query(User).filter(User.id != user.id, User.is_on_call == False)
     if desired_gender:
         q = q.filter(User.gender == desired_gender)
+    
     other = q.order_by(func.random()).first()
+    
+    # Fallback if no one found with desired gender (only for paid users seeking specific gender, or free users if none same gender)
+    if not other and user.is_subscribed and desired_gender:
+         # Try finding ANY valid user if preference not met? Or just fail?
+         # Usually better to fail or wait, but for MVP we might fallback to random.
+         # For now, let's keep it strict.
+         pass
+         
     if not other:
-        other = db.query(User).filter(User.id != user.id).order_by(func.random()).first()
+         # Try wider search if allowed? 
+         # For free users, must be same gender. If none, fail.
+         if not user.is_subscribed and desired_gender:
+              pass # Fail
+         elif not user.is_subscribed and not desired_gender:
+              # Fallback to anyone not on call
+              other = db.query(User).filter(User.id != user.id, User.is_on_call == False).order_by(func.random()).first()
+
     if not other:
-        raise HTTPException(404, "No users available for video match.")
+        # cleanup own status if failed
+        user.is_on_call = False
+        db.add(user)
+        db.commit()
+        raise HTTPException(404, "No available users found.")
+    
+    # Mark other as on call
+    other.is_on_call = True
+    db.add(other)
 
     session = ChatSession(mode="video", user_a_id=user.id, user_b_id=other.id)
     db.add(session)
@@ -239,7 +247,7 @@ def video_match(
         "ok": True,
         "agora_app_id": agora_app_id,
         "channel": channel,
-        "duration_seconds": duration_seconds,
+        "duration_seconds": 60, # Standard duration
         "session": {
             "id": session.id,
             "mode": session.mode,
@@ -256,8 +264,20 @@ def video_match(
             "description": other.description or "",
             "image_url": other.image_url or "",
             "is_online": _is_online(other),
+            "is_on_call": True,
         },
     }
+
+
+@router.post("/video/end")
+def end_video_call(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    user.is_on_call = False
+    db.add(user)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/sessions/history")
@@ -266,8 +286,7 @@ def get_chat_history(
     user: User = Depends(get_current_user),
 ):
     """
-    Returns a list of unique users the current user has chatted with,
-    ordered by most recent session.
+    Returns a list of unique users the current user has chatted with.
     """
     sessions = (
         db.query(ChatSession)
@@ -280,7 +299,6 @@ def get_chat_history(
     for s in sessions:
         other_id = s.user_b_id if s.user_a_id == user.id else s.user_a_id
         if other_id not in history_map:
-            # Determine "other" user object
             other = s.user_b if s.user_a_id == user.id else s.user_a
             if other:
                 history_map[other_id] = {
@@ -290,6 +308,8 @@ def get_chat_history(
                     "last_seen": s.created_at.isoformat(),
                     "session_id": s.id,
                     "mode": s.mode,
+                    "is_on_call": bool(other.is_on_call),
+                    "is_online": _is_online(other),
                 }
     
     return {
@@ -366,7 +386,6 @@ def demo_activate_subscription(
 ):
     """
     Demo-only endpoint: marks user as subscribed.
-    Replace with Google Play subscription verification later.
     """
     user.is_subscribed = True
     db.add(user)

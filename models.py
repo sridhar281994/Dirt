@@ -35,6 +35,9 @@ class User(Base):
     free_video_total_count = Column(Integer, default=0, nullable=False)
     free_video_opposite_count = Column(Integer, default=0, nullable=False)
 
+    # Busy status
+    is_on_call = Column(Boolean, default=False, nullable=False)
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 

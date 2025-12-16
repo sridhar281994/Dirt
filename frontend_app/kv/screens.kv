@@ -705,6 +705,15 @@
                         font_size: sp(12)
                         on_release: root.subscribe("voice_10min")
 
+        # Random Video Chat Button
+        Button:
+            text: "Random Video Chat"
+            size_hint: 0.6, None
+            height: dp(50)
+            pos_hint: {"center_x": 0.5, "y": 0.02}
+            background_color: (0.8, 0.2, 0.8, 1)
+            on_release: root.start_random_video_chat()
+
 <ChatScreen>:
     name: "chat"
     FloatLayout:
@@ -850,6 +859,22 @@
                 size: self.size
                 source: "assets/background.png"
 
+        # Notification at top
+        Label:
+            text: "On Video Call"
+            size_hint: 1, None
+            height: dp(30)
+            pos_hint: {"top": 1}
+            color: 1, 0, 0, 1
+            bold: True
+            
+            canvas.before:
+                Color:
+                    rgba: 0, 0, 0, 0.5
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
+
         BoxLayout:
             orientation: "vertical"
             padding: dp(20)
@@ -872,13 +897,7 @@
                     font_size: sp(12)
                     background_color: (0.2, 0.8, 0.2, 1)
                     on_release: root.next_call()
-                Button:
-                    text: "Chat"
-                    size_hint_x: None
-                    width: dp(60)
-                    font_size: sp(12)
-                    background_color: (0.2, 0.6, 0.9, 1)
-                    on_release: root.open_chat()
+                # Removed top Chat button
                 Label:
                     text: "connected to " + (root.match_username or "user")
                     bold: True
@@ -894,6 +913,16 @@
                 height: dp(30)
                 font_size: sp(12)
                 color: 1, 1, 1, 0.7
+
+        # Bottom Left Chat Button
+        Button:
+            text: "Chat"
+            size_hint: None, None
+            size: dp(60), dp(40)
+            pos_hint: {"x": 0.05, "y": 0.05}
+            font_size: sp(12)
+            background_color: (0.2, 0.6, 0.9, 1)
+            on_release: root.open_chat()
 
 <UserMatchScreen>:
     name: "user_match"
