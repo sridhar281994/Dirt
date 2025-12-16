@@ -1,6 +1,10 @@
 # Common background mixin logic or applied to each screen directly
 # We will apply 'assets/background.png' to each screen's canvas.before.
 
+<SmallSpinnerOption@SpinnerOption>:
+    font_size: sp(12)
+    height: dp(40)
+
 <WelcomeScreen>:
     name: 'welcome'
 
@@ -516,7 +520,7 @@
         # Top Bar
         BoxLayout:
             size_hint: 1, None
-            height: dp(60)
+            height: dp(72)
             pos_hint: {"top": 1}
             padding: dp(10)
             spacing: dp(10)
@@ -528,8 +532,9 @@
                     size: self.size
 
             Label:
-                text: root.my_name or "Loading..."
-                size_hint_x: 0.35
+                markup: True
+                text: (root.my_name or "Loading...") + (("\n[size=12sp]" + root.my_desc + "[/size]") if root.my_desc else "")
+                size_hint_x: 0.32
                 text_size: self.size
                 halign: "left"
                 valign: "middle"
@@ -537,7 +542,7 @@
 
             Label:
                 text: root.my_country or ""
-                size_hint_x: 0.25
+                size_hint_x: 0.23
                 text_size: self.size
                 halign: "left"
                 valign: "middle"
@@ -554,8 +559,10 @@
                 id: settings_spinner
                 text: "⚙️"
                 values: ["Subscribe", "History", "Change Password", "Logout"]
+                option_cls: "SmallSpinnerOption"
+                font_size: sp(12)
                 size_hint_x: None
-                width: dp(50)
+                width: dp(160)
                 background_color: (0.2, 0.2, 0.2, 1)
                 on_text: root.on_settings_select(self.text)
 
@@ -592,6 +599,12 @@
                         halign: "left"
                         valign: "middle"
                     Label:
+                        text: "●"
+                        size_hint_x: None
+                        width: dp(20)
+                        font_size: sp(18)
+                        color: (0.1, 0.9, 0.2, 1) if root.current_is_online else (0.6, 0.6, 0.6, 1)
+                    Label:
                         text: root.current_country or ""
                         size_hint_x: None
                         width: dp(110)
@@ -600,30 +613,24 @@
                         halign: "right"
                         valign: "middle"
 
+                Label:
+                    text: root.current_desc or ""
+                    size_hint_y: None
+                    height: dp(24)
+                    font_size: sp(12)
+                    color: 0.9, 0.9, 0.9, 1
+                    shorten: True
+                    text_size: self.size
+                    halign: "left"
+                    valign: "middle"
+
                 RelativeLayout:
                     size_hint_y: 0.6
                     AsyncImage:
-                        source: root.current_image_url if root.current_image_url else ""
+                        source: root.current_image_url
                         allow_stretch: True
                         keep_ratio: True
-                        opacity: 1 if root.current_image_url else 0
                         size_hint: 1, 1
-                    Label:
-                        text: "No photo"
-                        opacity: 1 if not root.current_image_url else 0
-                        color: 1, 1, 1, 0.85
-                        bold: True
-                        halign: "center"
-                        valign: "middle"
-                        text_size: self.size
-
-                Label:
-                    text: root.current_desc
-                    size_hint_y: 0.2
-                    text_size: self.size
-                    halign: "center"
-                    valign: "top"
-                    padding: dp(10), dp(10)
 
                 BoxLayout:
                     size_hint_y: None
@@ -639,9 +646,8 @@
                         background_color: (0.8, 0.2, 0.2, 1)
                         on_release: root.swipe_left()
 
-                    Label:
-                        text: "Swipe"
-                        color: 0.8, 0.8, 0.8, 1
+                    Widget:
+                        size_hint_x: 1
 
                     Button:
                         text: "→" # Right / Like
@@ -662,6 +668,9 @@
                     Button:
                         text: "Voice Chat"
                         on_release: root.start_chat("voice")
+                    Button:
+                        text: "Video Chat"
+                        on_release: root.start_video_chat()
 
             # Public Chat & Subs
             BoxLayout:
@@ -857,12 +866,23 @@
                     size_hint_x: None
                     width: dp(100)
                     on_release: root.go_back()
+                Button:
+                    text: "NEXT"
+                    size_hint_x: None
+                    width: dp(120)
+                    background_color: (0.2, 0.8, 0.2, 1)
+                    on_release: root.next_call()
                 Label:
                     text: "Video Call"
                     bold: True
 
             Label:
-                text: "Video Session Active\n\n(Mock Interface)\n\nID: " + str(root.session_id)
+                text: ("Connected to: " + (root.match_name or "Searching...") +
+                      ("\n@" + root.match_username if root.match_username else "") +
+                      ("\n" + root.match_country if root.match_country else "") +
+                      ("\n\n" + root.match_desc if root.match_desc else "") +
+                      ("\n\nTime left: " + str(int(root.remaining_seconds)) + "s" if root.remaining_seconds else "\n\nTime left: 0s") +
+                      ("\n\nSession ID: " + str(root.session_id)))
                 halign: "center"
                 font_size: sp(18)
 

@@ -9,6 +9,7 @@ from kivy.uix.image import AsyncImage
 from kivy.metrics import dp, sp
 
 from frontend_app.utils.api import api_get_history, ApiError
+from frontend_app.utils.storage import get_user
 
 class UserMatchScreen(Screen):
     def on_pre_enter(self, *args):
@@ -74,6 +75,11 @@ class UserMatchScreen(Screen):
 
     def open_chat(self, session_id, mode):
         if not session_id:
+            return
+
+        # Chat is subscription-only.
+        u = get_user() or {}
+        if mode in {"text", "voice"} and not bool(u.get("is_subscribed")):
             return
         
         # Determine target screen based on mode? 

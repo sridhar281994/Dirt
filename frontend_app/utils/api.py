@@ -193,6 +193,18 @@ def api_verify_subscription(*, purchase_token: str, plan_key: str) -> bool:
     return r.json().get("valid", False)
 
 
+def api_video_match(*, preference: str = "both") -> Dict[str, Any]:
+    r = requests.post(
+        f"{_base_url()}/api/video/match",
+        json={"preference": preference},
+        headers=_headers(auth=True),
+        timeout=20,
+        verify=False,
+    )
+    _raise(r)
+    return r.json()
+
+
 def api_get_public_messages(*, limit: int = 500) -> Dict[str, Any]:
     r = requests.get(
         f"{_base_url()}/api/public/messages",

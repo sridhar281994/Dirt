@@ -20,6 +20,30 @@ app = FastAPI(title="Chat App Backend")
 # Create tables (simple projects; for production use migrations).
 Base.metadata.create_all(bind=engine)
 
+# Lightweight SQLite schema patching for local dev (Render uses Postgres + scripts/db_update.sql).
+def _sqlite_ensure_columns() -> None:
+    try:
+        if not str(engine.url).startswith("sqlite"):
+            return
+        from sqlalchemy import text
+
+        with engine.begin() as conn:
+            cols = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+            existing = {str(r[1]) for r in cols}  # (cid, name, type, notnull, dflt_value, pk)
+
+            if "last_active_at" not in existing:
+                conn.execute(text("ALTER TABLE users ADD COLUMN last_active_at DATETIME"))
+            if "free_video_total_count" not in existing:
+                conn.execute(text("ALTER TABLE users ADD COLUMN free_video_total_count INTEGER DEFAULT 0"))
+            if "free_video_opposite_count" not in existing:
+                conn.execute(text("ALTER TABLE users ADD COLUMN free_video_opposite_count INTEGER DEFAULT 0"))
+    except Exception:
+        # Never block app startup for local dev migrations.
+        pass
+
+
+_sqlite_ensure_columns()
+
 app.include_router(auth_router, prefix="/api")
 app.include_router(match_router, prefix="/api")
 app.include_router(public_router, prefix="/api")

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import os
+import random
 from typing import Optional
 
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -23,7 +25,11 @@ class SwipeIn(BaseModel):
 
 class StartSessionIn(BaseModel):
     target_user_id: int
-    mode: str  # "text" | "video"
+    mode: str  # "text" | "voice" | "video"
+
+
+class VideoMatchIn(BaseModel):
+    preference: str = "both"  # male|female|both
 
 
 class MessageIn(BaseModel):
@@ -43,6 +49,15 @@ def _is_opposite_or_cross(*, me_gender: str, other_gender: str) -> bool:
     if me in {"male", "female"} and other in {"male", "female"}:
         return me != other
     return False
+
+
+def _is_online(u: User, *, window_seconds: int = 120) -> bool:
+    if not getattr(u, "last_active_at", None):
+        return False
+    try:
+        return (datetime.utcnow() - u.last_active_at).total_seconds() <= window_seconds
+    except Exception:
+        return False
 
 
 @router.get("/profiles/next")
@@ -73,8 +88,13 @@ def get_next_profile(
     if pref != "both":
         q = q.filter(User.gender == pref)
 
-    # Simple ordering (new users first). Replace with better ranking later.
+    # Prefer unswiped first; if exhausted, loop by falling back to already-swiped users.
     candidate: Optional[User] = q.order_by(User.created_at.desc()).first()
+    if not candidate:
+        q2 = db.query(User).filter(User.id != user.id)
+        if pref != "both":
+            q2 = q2.filter(User.gender == pref)
+        candidate = q2.order_by(User.created_at.desc()).first()
     if not candidate:
         return {"ok": True, "profile": None}
 
@@ -88,6 +108,7 @@ def get_next_profile(
             "gender": candidate.gender,
             "description": candidate.description or "",
             "image_url": candidate.image_url or "",
+            "is_online": _is_online(candidate),
         },
     }
 
@@ -119,18 +140,16 @@ def start_session(
     user: User = Depends(get_current_user),
 ):
     mode = (payload.mode or "").strip().lower()
-    if mode not in {"text", "video"}:
-        raise HTTPException(400, "mode must be 'text' or 'video'")
+    if mode not in {"text", "voice", "video"}:
+        raise HTTPException(400, "mode must be 'text', 'voice', or 'video'")
 
     other = db.get(User, payload.target_user_id)
     if not other or other.id == user.id:
         raise HTTPException(404, "Target not found")
 
-    # Gating rule:
-    # - Same gender: allowed
-    # - Opposite gender OR chatting with 'cross': requires subscription
-    if _is_opposite_or_cross(me_gender=user.gender, other_gender=other.gender) and not user.is_subscribed:
-        raise HTTPException(403, "Subscription required for opposite/cross gender chat.")
+    # Chat is subscription-only (text/voice). Video is handled separately via /video/match.
+    if mode in {"text", "voice"} and not user.is_subscribed:
+        raise HTTPException(403, "Subscription required for chat.")
 
     session = ChatSession(mode=mode, user_a_id=user.id, user_b_id=other.id)
     db.add(session)
@@ -145,6 +164,94 @@ def start_session(
             "user_a_id": session.user_a_id,
             "user_b_id": session.user_b_id,
             "created_at": session.created_at.isoformat(),
+        },
+    }
+
+
+@router.post("/video/match")
+def video_match(
+    payload: VideoMatchIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Random video matchmaking.
+    - If subscribed: respects preference (male|female|both)
+    - If not subscribed: connects randomly, with bias rules for opposite gender:
+        - first 3 matches: opposite gender (when possible)
+        - afterwards: opposite gender is rare
+    Returns a ChatSession(mode='video') plus Agora App ID from env.
+    """
+    pref = _norm_gender(payload.preference)
+    if pref not in {"male", "female", "both"}:
+        pref = "both"
+
+    me = _norm_gender(user.gender)
+    desired_gender: Optional[str] = None
+    duration_seconds = 40
+
+    if user.is_subscribed:
+        if pref in {"male", "female"}:
+            desired_gender = pref
+        else:
+            desired_gender = None
+    else:
+        # Free users: ignore requested preference (connect both genders randomly)
+        if me in {"male", "female"}:
+            opposite = "female" if me == "male" else "male"
+            if (user.free_video_opposite_count or 0) < 3:
+                desired_gender = opposite
+                user.free_video_opposite_count = int((user.free_video_opposite_count or 0) + 1)
+            else:
+                # "Very rare" opposite gender after first 3
+                desired_gender = opposite if random.random() < 0.10 else me
+            user.free_video_total_count = int((user.free_video_total_count or 0) + 1)
+        else:
+            # 'cross' or unknown: just random
+            desired_gender = None
+            user.free_video_total_count = int((user.free_video_total_count or 0) + 1)
+
+        db.add(user)
+        db.commit()
+
+    q = db.query(User).filter(User.id != user.id)
+    if desired_gender:
+        q = q.filter(User.gender == desired_gender)
+    other = q.order_by(func.random()).first()
+    if not other:
+        other = db.query(User).filter(User.id != user.id).order_by(func.random()).first()
+    if not other:
+        raise HTTPException(404, "No users available for video match.")
+
+    session = ChatSession(mode="video", user_a_id=user.id, user_b_id=other.id)
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+
+    agora_app_id = os.getenv("AGORA_ID") or os.getenv("AGORA_APP_ID") or ""
+    channel = f"video_{session.id}"
+
+    return {
+        "ok": True,
+        "agora_app_id": agora_app_id,
+        "channel": channel,
+        "duration_seconds": duration_seconds,
+        "session": {
+            "id": session.id,
+            "mode": session.mode,
+            "user_a_id": session.user_a_id,
+            "user_b_id": session.user_b_id,
+            "created_at": session.created_at.isoformat(),
+        },
+        "match": {
+            "id": other.id,
+            "username": other.username or "",
+            "name": other.name,
+            "country": other.country,
+            "gender": other.gender,
+            "description": other.description or "",
+            "image_url": other.image_url or "",
+            "is_online": _is_online(other),
         },
     }
 
@@ -198,14 +305,11 @@ def post_message(
         raise HTTPException(404, "Session not found")
     if user.id not in {session.user_a_id, session.user_b_id}:
         raise HTTPException(403, "Not a participant")
-    
-    # Check subscription for opposite/cross gender messaging
-    other_id = session.user_b_id if session.user_a_id == user.id else session.user_a_id
-    other = db.get(User, other_id)
-    if other:
-        if _is_opposite_or_cross(me_gender=user.gender, other_gender=other.gender) and not user.is_subscribed:
-            raise HTTPException(403, "Subscription required to send message.")
 
+    # Chat is subscription-only.
+    if session.mode in {"text", "voice"} and not user.is_subscribed:
+        raise HTTPException(403, "Subscription required to send message.")
+    
     if not payload.message or not payload.message.strip():
         raise HTTPException(400, "Message required")
 
@@ -226,6 +330,10 @@ def get_messages(
         raise HTTPException(404, "Session not found")
     if user.id not in {session.user_a_id, session.user_b_id}:
         raise HTTPException(403, "Not a participant")
+
+    # Chat is subscription-only.
+    if session.mode in {"text", "voice"} and not user.is_subscribed:
+        raise HTTPException(403, "Subscription required to view messages.")
 
     msgs = (
         db.query(ChatMessage)
