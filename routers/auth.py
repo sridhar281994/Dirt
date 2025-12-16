@@ -57,6 +57,17 @@ def get_current_user(
     user = db.get(User, int(sub))
     if not user:
         raise HTTPException(401, "User not found")
+
+    # Update presence (throttled) so profiles can show "online" status.
+    now = _now()
+    try:
+        if (user.last_active_at is None) or ((now - user.last_active_at).total_seconds() >= 30):
+            user.last_active_at = now
+            db.add(user)
+            db.commit()
+    except Exception:
+        # Presence updates should never block the request.
+        db.rollback()
     return user
 
 
@@ -181,6 +192,13 @@ def login_verify_otp(payload: LoginVerifyOtpIn, db: Session = Depends(get_db)):
         raise HTTPException(401, "Invalid/expired OTP.")
 
     token = _create_token(user_id=user.id, is_guest=False)
+    # Mark online immediately on login.
+    try:
+        user.last_active_at = _now()
+        db.add(user)
+        db.commit()
+    except Exception:
+        db.rollback()
     return {
         "ok": True,
         "access_token": token,
@@ -195,6 +213,7 @@ def login_verify_otp(payload: LoginVerifyOtpIn, db: Session = Depends(get_db)):
             "description": user.description or "",
             "image_url": user.image_url or "",
             "is_subscribed": bool(user.is_subscribed),
+            "last_active_at": user.last_active_at.isoformat() if user.last_active_at else None,
         },
     }
 
@@ -243,6 +262,13 @@ def guest_login(db: Session = Depends(get_db)):
     db.add(guest)
     db.commit()
     db.refresh(guest)
+    # Mark online immediately on guest creation/login.
+    try:
+        guest.last_active_at = _now()
+        db.add(guest)
+        db.commit()
+    except Exception:
+        db.rollback()
 
     token = _create_token(user_id=guest.id, is_guest=True)
     return {
@@ -255,8 +281,11 @@ def guest_login(db: Session = Depends(get_db)):
             "name": guest.name,
             "gender": guest.gender,
             "country": guest.country,
+            "description": guest.description or "",
+            "image_url": guest.image_url or "",
             "is_subscribed": False,
             "is_guest": True,
+            "last_active_at": guest.last_active_at.isoformat() if guest.last_active_at else None,
         },
     }
 

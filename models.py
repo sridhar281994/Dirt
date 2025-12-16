@@ -28,6 +28,13 @@ class User(Base):
     # Entitlement flag (for opposite/cross chat). Real Google Play IAP should update this.
     is_subscribed = Column(Boolean, default=False, nullable=False)
 
+    # Presence tracking: updated on authenticated requests.
+    last_active_at = Column(DateTime, nullable=True)
+
+    # Video matching counters for "free" bias rules.
+    free_video_total_count = Column(Integer, default=0, nullable=False)
+    free_video_opposite_count = Column(Integer, default=0, nullable=False)
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 

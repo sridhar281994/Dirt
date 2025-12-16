@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: chat-app-backend
+    env: python
+    plan: free
+    autoDeploy: true
+    buildCommand: pip install -r requirements.txt
+    # Ensure schema is updated before starting the app.
+    # Note: this assumes DATABASE_URL is set in Render env vars.
+    startCommand: python -c "from pathlib import Path; import os; import psycopg; sql=Path('scripts/db_update.sql').read_text(); url=os.environ['DATABASE_URL']; conn=psycopg.connect(url); conn.execute(sql); conn.commit(); conn.close();" && uvicorn main:app --host 0.0.0.0 --port $PORT
+

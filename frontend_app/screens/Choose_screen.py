@@ -4,7 +4,7 @@ from threading import Thread
 from typing import Any, Dict, Optional
 
 from kivy.clock import Clock
-from kivy.properties import NumericProperty, StringProperty
+from kivy.properties import BooleanProperty, NumericProperty, StringProperty
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen
@@ -16,6 +16,7 @@ from frontend_app.utils.api import (
     api_start_session,
     api_swipe,
     api_verify_subscription,
+    api_video_match,
 )
 from frontend_app.utils.storage import clear, get_user, set_user
 
@@ -50,10 +51,12 @@ class ChooseScreen(Screen):
     current_country = StringProperty("")
     current_desc = StringProperty("")
     current_image_url = StringProperty("")
+    current_is_online = BooleanProperty(False)
     
     # Logged-in user info
     my_name = StringProperty("")
     my_country = StringProperty("")
+    my_desc = StringProperty("")
     
     # Touch handling
     _touch_start_x = None
@@ -63,13 +66,9 @@ class ChooseScreen(Screen):
         u = get_user() or {}
         self.my_name = str(u.get("name") or "User")
         self.my_country = str(u.get("country") or "")
+        self.my_desc = str(u.get("description") or "")
         
         self.refresh_profile()
-        # Show hint popup on enter
-        Clock.schedule_once(lambda dt: self._show_swipe_hint(), 0.5)
-
-    def _show_swipe_hint(self):
-        _popup("Hint", "Swipe Left/Right to browse profiles.")
 
     def on_settings_select(self, text):
         if text == "Subscribe":
@@ -96,18 +95,6 @@ class ChooseScreen(Screen):
         if v not in {"male", "female", "both"}:
             return
 
-        u = get_user() or {}
-        my_gender = str(u.get("gender") or "").strip().lower()
-        subscribed = bool(u.get("is_subscribed"))
-
-        # Opposite gender selection requires subscription
-        if v != "both" and my_gender in {"male", "female"} and v != my_gender and not subscribed:
-            _popup("Subscription", "Opposite gender preference requires subscription.")
-            spinner = self.ids.get("pref_spinner") if hasattr(self, "ids") else None
-            if spinner is not None:
-                spinner.text = "both"
-            v = "both"
-
         self.preference = v
         self.refresh_profile()
 
@@ -133,13 +120,20 @@ class ChooseScreen(Screen):
             self.current_country = ""
             self.current_desc = ""
             self.current_image_url = ""
+            self.current_is_online = False
             return
         self.current_profile_id = int(prof.get("id") or 0)
         self.current_name = str(prof.get("name") or "")
         self.current_username = str(prof.get("username") or "")
         self.current_country = str(prof.get("country") or "")
         self.current_desc = str(prof.get("description") or "")
-        self.current_image_url = self._normalize_image_url(str(prof.get("image_url") or ""))
+        self.current_is_online = bool(prof.get("is_online") or False)
+        raw_img = str(prof.get("image_url") or "")
+        if raw_img.strip():
+            self.current_image_url = self._normalize_image_url(raw_img)
+        else:
+            # Never show "No photo" to users; use a lightweight placeholder.
+            self.current_image_url = self._fallback_avatar_url(self.current_name or self.current_username or "User")
 
     @staticmethod
     def _normalize_image_url(url: str) -> str:
@@ -161,6 +155,21 @@ class ChooseScreen(Screen):
         if not u.startswith("/"):
             u = "/" + u
         return f"{base}{u}"
+
+    @staticmethod
+    def _fallback_avatar_url(name: str) -> str:
+        # External placeholder image that renders initials.
+        import urllib.parse
+        n = (name or "User").strip() or "User"
+        return "https://ui-avatars.com/api/?" + urllib.parse.urlencode(
+            {
+                "name": n,
+                "background": "222222",
+                "color": "ffffff",
+                "size": "512",
+                "bold": "true",
+            }
+        )
 
     def swipe_left(self) -> None:
         self._swipe("left")
@@ -197,6 +206,12 @@ class ChooseScreen(Screen):
         return super().on_touch_up(touch)
 
     def start_chat(self, mode: str) -> None:
+        # Chat is subscription-only.
+        u = get_user() or {}
+        if not bool(u.get("is_subscribed")):
+            _popup("Subscription", "Chat requires an active subscription.")
+            return
+
         tid = int(self.current_profile_id or 0)
         if tid <= 0:
             _popup("Info", "No profile selected.")
@@ -225,6 +240,15 @@ class ChooseScreen(Screen):
                 _popup("Subscription", str(exc))
 
         Thread(target=work, daemon=True).start()
+
+    def start_video_chat(self) -> None:
+        # Random video match (backend decides based on subscription + preference).
+        if not self.manager:
+            return
+
+        video = self.manager.get_screen("video")
+        video.start_random(preference=self.preference)
+        self.manager.current = "video"
     
     def start_public_chat(self) -> None:
         # Navigate to public chat screen
