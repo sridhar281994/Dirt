@@ -666,9 +666,6 @@
                         text: "Text Chat"
                         on_release: root.start_chat("text")
                     Button:
-                        text: "Voice Chat"
-                        on_release: root.start_chat("voice")
-                    Button:
                         text: "Video Chat"
                         on_release: root.start_video_chat()
 
@@ -860,16 +857,19 @@
 
             BoxLayout:
                 size_hint_y: None
-                height: dp(50)
+                height: dp(40)
+                spacing: dp(10)
                 Button:
                     text: "Back"
                     size_hint_x: None
-                    width: dp(100)
+                    width: dp(60)
+                    font_size: sp(12)
                     on_release: root.go_back()
                 Button:
                     text: "NEXT"
                     size_hint_x: None
-                    width: dp(120)
+                    width: dp(60)
+                    font_size: sp(12)
                     background_color: (0.2, 0.8, 0.2, 1)
                     on_release: root.next_call()
                 Label:
@@ -882,10 +882,16 @@
                     ("\n@" + root.match_username if root.match_username else "") +
                     ("\n" + root.match_country if root.match_country else "") +
                     ("\n\n" + root.match_desc if root.match_desc else "") +
-                    ("\n\nTime left: " + str(int(root.remaining_seconds)) + "s" if root.remaining_seconds else "\n\nTime left: 0s") +
                     ("\n\nSession ID: " + str(root.session_id)))
                 halign: "center"
                 font_size: sp(18)
+            
+            Label:
+                text: "Time left: " + str(int(root.remaining_seconds)) + "s"
+                size_hint_y: None
+                height: dp(30)
+                font_size: sp(12)
+                color: 1, 1, 1, 0.7
 
 <UserMatchScreen>:
     name: "user_match"

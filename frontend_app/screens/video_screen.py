@@ -106,11 +106,15 @@ class VideoScreen(Screen):
         if rem <= 0:
             self.remaining_seconds = 0
             self._stop_timer()
+            # Auto-change to next call when timer expires
+            self.next_call()
             return False
         self.remaining_seconds = rem - 1
         if self.remaining_seconds <= 0:
             self.remaining_seconds = 0
             self._stop_timer()
+            # Auto-change to next call when timer expires
+            self.next_call()
             return False
         return True
 
