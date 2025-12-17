@@ -2,6 +2,10 @@ name: Build Android App
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
 
 jobs:
   build:
@@ -26,6 +30,7 @@ jobs:
         id: buildozer
         env:
           USER: root
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
         with:
           command: buildozer android debug
           buildozer_version: master

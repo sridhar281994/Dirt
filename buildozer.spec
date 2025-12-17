@@ -12,6 +12,10 @@ package.domain = org.test
 # (str) Source code where the main.py live
 source.dir = .
 
+# (str) Application entry point (relative to source.dir)
+# The repo root has a backend `main.py`; the mobile app lives in `frontend_app/main.py`.
+entrypoint = frontend_app/main.py
+
 # (list) Source files to include (let empty to include all the files)
 source.include_exts = py,png,jpg,kv,atlas
 
