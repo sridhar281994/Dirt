@@ -856,116 +856,138 @@
                 pos: self.pos
                 size: self.size
 
-        # Remote Video Area (main view - shows matched user's image/video)
+        # Remote Video Area (Full Screen)
+        RelativeLayout:
+            size_hint: 1, 1
+            pos_hint: {"x": 0, "y": 0}
+            
+            # Dark background for video area
+            canvas.before:
+                Color:
+                    rgba: 0.1, 0.1, 0.15, 1
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
+
+            # Remote user's image (placeholder for remote video stream)
+            AsyncImage:
+                id: remote_video
+                source: root.match_image_url or ""
+                fit_mode: "contain"
+                size_hint: 1, 1
+                pos_hint: {"center_x": 0.5, "center_y": 0.5}
+
+            # "Connecting..." overlay when no match
+            Label:
+                text: "Searching for match..." if not root.match_username else ""
+                font_size: sp(18)
+                color: 1, 1, 1, 0.8
+                pos_hint: {"center_x": 0.5, "center_y": 0.5}
+
+        # Tap Handler to toggle controls
+        Button:
+            background_color: 0, 0, 0, 0
+            size_hint: 1, 1
+            on_release: root.toggle_controls()
+
+        # Chat Messages Overlay (Transparent Background)
+        ScrollView:
+            size_hint: 0.6, 0.3
+            pos_hint: {"x": 0.02, "y": 0.2}
+            opacity: 1 if root.controls_visible else 0
+            disabled: not root.controls_visible
+            do_scroll_x: False
+            
+            GridLayout:
+                id: chat_box
+                cols: 1
+                size_hint_y: None
+                height: self.minimum_height
+                padding: dp(5)
+                spacing: dp(5)
+                # Transparent background for readability
+                canvas.before:
+                    Color:
+                        rgba: 0, 0, 0, 0.3
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [10]
+
+        # Controls Overlay (Bottom)
         BoxLayout:
             orientation: "vertical"
-            size_hint: 1, 1
+            size_hint_y: None
+            height: dp(110)
+            pos_hint: {"x": 0, "y": 0}
+            padding: dp(10)
+            spacing: dp(5)
+            opacity: 1 if root.controls_visible else 0
+            disabled: not root.controls_visible
+            
+            canvas.before:
+                Color:
+                    rgba: 0, 0, 0, 0.6
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
 
-            # Remote user video placeholder (their profile image for now)
-            RelativeLayout:
-                size_hint_y: 0.75
-                
-                # Dark background for video area
-                canvas.before:
-                    Color:
-                        rgba: 0.1, 0.1, 0.15, 1
-                    Rectangle:
-                        pos: self.pos
-                        size: self.size
-
-                # Remote user's image (placeholder for remote video stream)
-                AsyncImage:
-                    id: remote_video
-                    source: root.match_image_url or ""
-                    fit_mode: "contain"
-                    size_hint: 0.9, 0.9
-                    pos_hint: {"center_x": 0.5, "center_y": 0.5}
-
-                # "Connecting..." overlay when no match
-                Label:
-                    text: "Searching for match..." if not root.match_username else ""
-                    font_size: sp(18)
-                    color: 1, 1, 1, 0.8
-                    pos_hint: {"center_x": 0.5, "center_y": 0.5}
-
-                # Remote user info overlay at bottom of video
-                BoxLayout:
-                    size_hint: 1, None
-                    height: dp(50)
-                    pos_hint: {"x": 0, "y": 0}
-                    padding: dp(10)
-                    canvas.before:
-                        Color:
-                            rgba: 0, 0, 0, 0.6
-                        Rectangle:
-                            pos: self.pos
-                            size: self.size
-                    Label:
-                        text: (root.match_name or "Connecting...") + ("  @" + root.match_username if root.match_username else "")
-                        halign: "left"
-                        valign: "middle"
-                        text_size: self.size
-                        shorten: True
-                    Label:
-                        text: root.match_country or ""
-                        size_hint_x: None
-                        width: dp(100)
-                        halign: "right"
-                        valign: "middle"
-                        text_size: self.size
-
-            # Bottom control area
+            # Chat Input
             BoxLayout:
-                orientation: "vertical"
-                size_hint_y: 0.25
-                padding: dp(10)
+                size_hint_y: None
+                height: dp(40)
                 spacing: dp(10)
-                canvas.before:
-                    Color:
-                        rgba: 0.08, 0.08, 0.12, 1
-                    Rectangle:
-                        pos: self.pos
-                        size: self.size
+                
+                TextInput:
+                    id: chat_input
+                    hint_text: "Type a message..."
+                    multiline: False
+                    size_hint_x: 0.8
+                    background_color: 1, 1, 1, 0.2
+                    foreground_color: 1, 1, 1, 1
+                    cursor_color: 1, 1, 1, 1
+                
+                Button:
+                    text: "Send"
+                    size_hint_x: 0.2
+                    background_color: 0.2, 0.6, 0.9, 1
+                    on_release: root.send_message()
 
-                # Timer display
+            # Action Buttons & Info
+            BoxLayout:
+                size_hint_y: None
+                height: dp(40)
+                spacing: dp(10)
+
                 Label:
-                    text: "Time left: " + str(int(root.remaining_seconds)) + "s"
-                    size_hint_y: None
-                    height: dp(30)
-                    font_size: sp(16)
-                    color: 1, 1, 1, 0.9
+                    text: str(int(root.remaining_seconds)) + "s"
+                    size_hint_x: None
+                    width: dp(40)
                     bold: True
+                    color: 1, 0.2, 0.2, 1
 
-                # Control buttons
-                BoxLayout:
-                    size_hint_y: None
-                    height: dp(60)
-                    spacing: dp(15)
-                    padding: dp(10), 0
+                Label:
+                    text: (root.match_name or "...") 
+                    size_hint_x: 0.3
+                    shorten: True
+                
+                Button:
+                    text: "End"
+                    background_color: 0.8, 0.2, 0.2, 1
+                    on_release: root.go_back()
+                
+                Button:
+                    text: "Next"
+                    background_color: 0.2, 0.8, 0.2, 1
+                    on_release: root.next_call()
 
-                    Button:
-                        text: "End"
-                        font_size: sp(14)
-                        background_color: (0.8, 0.2, 0.2, 1)
-                        on_release: root.go_back()
-
-                    Button:
-                        text: "NEXT"
-                        font_size: sp(14)
-                        background_color: (0.2, 0.8, 0.2, 1)
-                        on_release: root.next_call()
-
-                    Button:
-                        text: "Chat"
-                        font_size: sp(14)
-                        background_color: (0.2, 0.6, 0.9, 1)
-                        on_release: root.open_chat()
-
-        # Local camera preview (small overlay in corner)
+        # Local camera preview (Bottom Right, Smaller)
         BoxLayout:
             size_hint: None, None
-            size: dp(120), dp(160)
-            pos_hint: {"right": 0.98, "top": 0.98}
+            size: dp(80), dp(106)
+            pos_hint: {"right": 0.98, "y": 0.12}
+            opacity: 1
+            
             canvas.before:
                 Color:
                     rgba: 0, 0, 0, 1
@@ -990,7 +1012,7 @@
             bold: True
             canvas.before:
                 Color:
-                    rgba: 0, 0, 0, 0.7
+                    rgba: 0, 0, 0, 0.5
                 RoundedRectangle:
                     pos: self.pos
                     size: self.size

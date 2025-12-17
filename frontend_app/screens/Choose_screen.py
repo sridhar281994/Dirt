@@ -68,17 +68,14 @@ class ChooseScreen(Screen):
         self.my_country = str(u.get("country") or "")
         self.my_desc = str(u.get("description") or "")
         
-        # Enforce gender preference for non-subscribed users (Task 4)
+        # Enforce gender preference for non-subscribed users
         if not bool(u.get("is_subscribed")):
             self.preference = "both"
             spinner = self.ids.get("pref_spinner")
             if spinner:
                 spinner.text = "both"
-                spinner.disabled = True
-        else:
-            spinner = self.ids.get("pref_spinner")
-            if spinner:
-                spinner.disabled = False
+                # Do not disable spinner, allow user to see options but not select them
+                # spinner.disabled = True
         
         if not hasattr(self, "_next_profile_cache"):
             self._next_profile_cache = None
