@@ -29,7 +29,15 @@ source.include_exts = py,png,jpg,kv,atlas
 #source.exclude_dirs = tests, bin, venv
 
 # (list) List of exclusions using pattern matching
-#source.exclude_patterns = license,images/*/*.jpg
+#
+# Reduce APK size:
+# - only the Kivy frontend is needed on device
+# - exclude backend/server code, local DB, caches, CI configs, etc.
+#
+# NOTE: This does not affect runtime; it only reduces packaged sources.
+#
+# Use list section below (more robust than a huge comma-separated line).
+#source.exclude_patterns =
 
 # (str) Application versioning (method 1)
 version = 0.1
@@ -222,3 +230,28 @@ warn_on_root = 1
 #    Then, invoke buildozer with the "demo" profile:
 #
 #        buildozer --profile demo android debug
+
+
+[app:source.exclude_patterns]
+__pycache__/*
+*/__pycache__/*
+*/*/__pycache__/*
+*/*/*/__pycache__/*
+*.pyc
+*.pyo
+*.pyd
+.git/*
+.github/*
+app.db
+*.db
+*.sqlite
+*.sqlite3
+routers/*
+scripts/*
+core/*
+utils/*
+database.py
+models.py
+main.py
+render-db-migrate.yml
+requirements.txt
