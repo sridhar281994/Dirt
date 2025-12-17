@@ -78,12 +78,21 @@ class ChatApp(App):
     def on_start(self):
         """Request permissions on Android."""
         if platform == "android":
-            from android.permissions import request_permissions, Permission
-            request_permissions([
-                Permission.CAMERA,
-                Permission.RECORD_AUDIO,
-                Permission.INTERNET
-            ])
+            try:
+                from android.permissions import request_permissions, Permission
+
+                # INTERNET is a normal permission (not runtime/dangerous) and may not exist
+                # in android.permissions.Permission on some setups. Only request runtime ones.
+                request_permissions([Permission.CAMERA, Permission.RECORD_AUDIO])
+            except Exception as exc:
+                # Make startup failures visible in logcat.
+                try:
+                    import traceback
+
+                    print("Permission request failed:", exc)
+                    print(traceback.format_exc())
+                except Exception:
+                    pass
 
     def update_timer(self, dt):
         user = get_user() or {}
