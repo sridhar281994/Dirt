@@ -22,6 +22,7 @@ class VideoScreen(Screen):
     match_desc = StringProperty("")
     match_image_url = StringProperty("")
     match_is_online = BooleanProperty(False)
+    match_user_id = NumericProperty(0) # Store ID for reporting
 
     duration_seconds = NumericProperty(0)
     remaining_seconds = NumericProperty(0)
@@ -80,6 +81,7 @@ class VideoScreen(Screen):
                     self.match_country = str(match.get("country") or "")
                     self.match_desc = str(match.get("description") or "")
                     self.match_is_online = bool(match.get("is_online") or False)
+                    self.match_user_id = int(match.get("id") or 0)
                     
                     # Set image URL with fallback
                     raw_img = str(match.get("image_url") or "")
@@ -124,10 +126,15 @@ class VideoScreen(Screen):
         # Chat is now an overlay on this screen.
         # Ensure controls are visible so chat is visible.
         self.controls_visible = True
-        
-        # Focus input if possible (requires reference in kv)
-        # self.ids.chat_input.focus = True 
         pass
+
+    def report_user(self):
+        if self.match_user_id > 0:
+            from frontend_app.utils.report_popup import show_report_popup
+            show_report_popup(reported_user_id=self.match_user_id, context="video")
+        else:
+            # Generic report if no user matched yet? Or ignore
+            pass
 
     def toggle_controls(self):
         self.controls_visible = not self.controls_visible

@@ -54,7 +54,7 @@ def _popup(title: str, msg: str) -> None:
 
 
 class ChooseScreen(Screen):
-    preference = StringProperty("both")  # male|female|both
+    preference = StringProperty("both")  # male|female|both (internal logic uses lowercase)
     current_profile_id = NumericProperty(0)
     current_name = StringProperty("")
     current_username = StringProperty("")
@@ -92,7 +92,7 @@ class ChooseScreen(Screen):
             self.preference = "both"
             spinner = self.ids.get("pref_spinner")
             if spinner:
-                spinner.text = "both"
+                spinner.text = "Both"
                 # Do not disable spinner, allow user to see options but not select them
                 # spinner.disabled = True
         
@@ -133,7 +133,7 @@ class ChooseScreen(Screen):
             # Revert UI
             spinner = self.ids.get("pref_spinner")
             if spinner:
-                spinner.text = "both"
+                spinner.text = "Both"
             return
 
         self.preference = v
@@ -300,7 +300,7 @@ class ChooseScreen(Screen):
                         self.manager.current = "video"
                     else:
                         chat = self.manager.get_screen("chat")
-                        chat.set_session(session_id=sid, mode=mode)
+                        chat.set_session(session_id=sid, mode=mode, target_user_id=tid)
                         self.manager.current = "chat"
 
                 Clock.schedule_once(go, 0)

@@ -86,6 +86,11 @@ class PublicChatScreen(Screen):
 
         Thread(target=work, daemon=True).start()
 
+    def report_chat(self):
+        from frontend_app.utils.report_popup import show_report_popup
+        # No specific user ID for general report, user can specify in details
+        show_report_popup(reported_user_id=None, context="public_chat")
+
     def go_back(self) -> None:
         if self.manager:
             self.manager.current = "choose"

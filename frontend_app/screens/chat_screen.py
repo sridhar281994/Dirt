@@ -23,11 +23,20 @@ def _popup(title: str, msg: str) -> None:
 class ChatScreen(Screen):
     session_id = NumericProperty(0)
     mode = StringProperty("text")
+    target_user_id = NumericProperty(0)
 
-    def set_session(self, *, session_id: int, mode: str):
+    def set_session(self, *, session_id: int, mode: str, target_user_id: int = 0):
         self.session_id = int(session_id)
         self.mode = mode
+        self.target_user_id = int(target_user_id)
         self.refresh_messages()
+
+    def report_user(self):
+        if self.target_user_id > 0:
+            from frontend_app.utils.report_popup import show_report_popup
+            show_report_popup(reported_user_id=self.target_user_id, context="chat")
+        else:
+            _popup("Info", "Cannot report user (ID unknown).")
 
     def go_back(self):
         if self.manager:

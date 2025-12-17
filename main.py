@@ -13,6 +13,7 @@ from routers.auth import router as auth_router
 from routers.match_routes import router as match_router
 from routers.public_chat import router as public_router
 from routers.subscription import router as sub_router
+from routers.report import router as report_router
 
 
 app = FastAPI(title="Chat App Backend")
@@ -48,6 +49,7 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(match_router, prefix="/api")
 app.include_router(public_router, prefix="/api")
 app.include_router(sub_router, prefix="/api")
+app.include_router(report_router, prefix="/api")
 
 
 def _cleanup_old_messages() -> int:
