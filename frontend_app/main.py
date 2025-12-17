@@ -13,6 +13,7 @@ from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.label import Label
 from kivy.clock import Clock
+from kivy.utils import platform
 
 from frontend_app.screens.Choose_screen import ChooseScreen
 from frontend_app.screens.chat_screen import ChatScreen
@@ -63,6 +64,16 @@ class ChatApp(App):
         Clock.schedule_interval(self.update_timer, 1.0)
 
         return root
+
+    def on_start(self):
+        """Request permissions on Android."""
+        if platform == "android":
+            from android.permissions import request_permissions, Permission
+            request_permissions([
+                Permission.CAMERA,
+                Permission.RECORD_AUDIO,
+                Permission.INTERNET
+            ])
 
     def update_timer(self, dt):
         user = get_user() or {}

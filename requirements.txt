@@ -16,3 +16,7 @@ requests==2.32.3
 apscheduler==3.10.4
 python-dotenv==1.0.1
 redis==5.0.8
+
+# Kivy and dependencies
+kivy>=2.3.0
+opencv-python>=4.9.0.80

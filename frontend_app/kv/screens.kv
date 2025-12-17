@@ -628,8 +628,7 @@
                     size_hint_y: 0.6
                     AsyncImage:
                         source: root.current_image_url
-                        allow_stretch: True
-                        keep_ratio: True
+                        fit_mode: "contain"
                         size_hint: 1, 1
 
                 BoxLayout:
@@ -878,8 +877,7 @@
                 AsyncImage:
                     id: remote_video
                     source: root.match_image_url or ""
-                    allow_stretch: True
-                    keep_ratio: True
+                    fit_mode: "contain"
                     size_hint: 0.9, 0.9
                     pos_hint: {"center_x": 0.5, "center_y": 0.5}
 
@@ -979,8 +977,7 @@
                 id: local_camera
                 resolution: (640, 480)
                 play: root.session_id > 0
-                allow_stretch: True
-                keep_ratio: True
+                fit_mode: "contain"
 
         # "On Video Call" indicator
         Label:
