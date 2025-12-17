@@ -99,6 +99,7 @@ class VideoScreen(Screen):
                 Clock.schedule_once(apply, 0)
             except ApiError as exc:
                 # Keep UI simple: show the error in the screen label via properties.
+                error_msg = str(exc)
                 def apply_err(*_):
                     self.session_id = 0
                     self.channel = ""
@@ -106,7 +107,7 @@ class VideoScreen(Screen):
                     self.match_name = ""
                     self.match_username = ""
                     self.match_country = ""
-                    self.match_desc = str(exc)
+                    self.match_desc = error_msg
                     self.match_image_url = ""
                     self.match_is_online = False
                     self.duration_seconds = 0
