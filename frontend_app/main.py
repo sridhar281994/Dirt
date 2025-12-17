@@ -2,10 +2,17 @@ from __future__ import annotations
 import os
 import sys
 
-if __name__ == "__main__":
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ""))
-    if repo_root not in sys.path:
-        sys.path.insert(0, repo_root)
+#
+# IMPORTANT (Android packaging):
+# Buildozer runs this file as the entrypoint (e.g. `frontend_app/main.py`).
+# When a script inside a package folder is executed, Python adds THAT folder
+# to `sys.path`, not the repository root. Our imports use `frontend_app.*`,
+# so we must ensure the repo root (parent of `frontend_app/`) is on `sys.path`.
+#
+APP_DIR = os.path.dirname(__file__)
+REPO_ROOT = os.path.abspath(os.path.join(APP_DIR, os.pardir))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
 from kivy.app import App
 from kivy.lang import Builder
@@ -71,12 +78,21 @@ class ChatApp(App):
     def on_start(self):
         """Request permissions on Android."""
         if platform == "android":
-            from android.permissions import request_permissions, Permission
-            request_permissions([
-                Permission.CAMERA,
-                Permission.RECORD_AUDIO,
-                Permission.INTERNET
-            ])
+            try:
+                from android.permissions import request_permissions, Permission
+
+                # INTERNET is a normal permission (not runtime/dangerous) and may not exist
+                # in android.permissions.Permission on some setups. Only request runtime ones.
+                request_permissions([Permission.CAMERA, Permission.RECORD_AUDIO])
+            except Exception as exc:
+                # Make startup failures visible in logcat.
+                try:
+                    import traceback
+
+                    print("Permission request failed:", exc)
+                    print(traceback.format_exc())
+                except Exception:
+                    pass
 
     def update_timer(self, dt):
         user = get_user() or {}
