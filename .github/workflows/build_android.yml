@@ -34,7 +34,8 @@ jobs:
         with:
           # buildozer-action installs buildozer via `pip --user`, which places the
           # binary in $HOME/.local/bin (not always on PATH for the container shell).
-          command: export PATH="$HOME/.local/bin:$PATH" && buildozer android debug
+          # Pipe "yes" to avoid interactive Android SDK license prompts from sdkmanager.
+          command: export PATH="$HOME/.local/bin:$PATH" && yes | buildozer android debug
           buildozer_version: master
 
       - name: Upload APK
