@@ -9,6 +9,19 @@ from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen
 from kivy.app import App
+from kivy.uix.spinner import Spinner
+
+class CustomSpinner(Spinner):
+    def __init__(self, **kwargs):
+        self.dropdown_width = kwargs.pop('dropdown_width', None)
+        super().__init__(**kwargs)
+
+    def _update_dropdown_size(self, *largs):
+        if self.dropdown_width:
+            self.dropdown.width = self.dropdown_width
+        else:
+            super()._update_dropdown_size(*largs)
+
 
 from frontend_app.utils.api import (
     ApiError,
