@@ -32,7 +32,9 @@ jobs:
           USER: root
           PIP_BREAK_SYSTEM_PACKAGES: "1"
         with:
-          command: buildozer android debug
+          # buildozer-action installs buildozer via `pip --user`, which places the
+          # binary in $HOME/.local/bin (not always on PATH for the container shell).
+          command: export PATH="$HOME/.local/bin:$PATH" && buildozer android debug
           buildozer_version: master
 
       - name: Upload APK
