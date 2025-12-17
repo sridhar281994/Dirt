@@ -18,7 +18,9 @@ from frontend_app.utils.api import (
     api_verify_subscription,
     api_video_match,
 )
+from frontend_app.utils.billing import BillingManager
 from frontend_app.utils.storage import clear, get_user, set_user
+from kivy.utils import platform
 
 
 SUBSCRIPTION_PLANS = {
@@ -26,6 +28,14 @@ SUBSCRIPTION_PLANS = {
     "text_10min": 10,
     "video_hour": 200,
     "video_10min": 30,
+}
+
+# Real SKU mapping (Replace with actual Google Play Product IDs)
+SKU_MAPPING = {
+    "text_hour": "text_hour", 
+    "text_10min": "text_10min",
+    "video_hour": "video_hour", 
+    "video_10min": "video_10min",
 }
 
 
@@ -44,7 +54,7 @@ def _popup(title: str, msg: str) -> None:
 
 
 class ChooseScreen(Screen):
-    preference = StringProperty("both")  # male|female|both
+    preference = StringProperty("both")  # male|female|both (internal logic uses lowercase)
     current_profile_id = NumericProperty(0)
     current_name = StringProperty("")
     current_username = StringProperty("")
@@ -60,25 +70,31 @@ class ChooseScreen(Screen):
     
     # Touch handling
     _touch_start_x = None
+    
+    billing_manager = None
 
     def on_pre_enter(self, *args):
+        # Initialize billing if needed
+        if not self.billing_manager:
+            self.billing_manager = BillingManager(self._on_billing_success)
+            # Pre-query SKUs
+            if platform == "android":
+                self.billing_manager.query_sku_details(list(SKU_MAPPING.values()))
+
         # Update logged-in user info
         u = get_user() or {}
         self.my_name = str(u.get("name") or "User")
         self.my_country = str(u.get("country") or "")
         self.my_desc = str(u.get("description") or "")
         
-        # Enforce gender preference for non-subscribed users (Task 4)
+        # Enforce gender preference for non-subscribed users
         if not bool(u.get("is_subscribed")):
             self.preference = "both"
             spinner = self.ids.get("pref_spinner")
             if spinner:
-                spinner.text = "both"
-                spinner.disabled = True
-        else:
-            spinner = self.ids.get("pref_spinner")
-            if spinner:
-                spinner.disabled = False
+                spinner.text = "Both"
+                # Do not disable spinner, allow user to see options but not select them
+                # spinner.disabled = True
         
         if not hasattr(self, "_next_profile_cache"):
             self._next_profile_cache = None
@@ -117,7 +133,7 @@ class ChooseScreen(Screen):
             # Revert UI
             spinner = self.ids.get("pref_spinner")
             if spinner:
-                spinner.text = "both"
+                spinner.text = "Both"
             return
 
         self.preference = v
@@ -284,7 +300,7 @@ class ChooseScreen(Screen):
                         self.manager.current = "video"
                     else:
                         chat = self.manager.get_screen("chat")
-                        chat.set_session(session_id=sid, mode=mode)
+                        chat.set_session(session_id=sid, mode=mode, target_user_id=tid)
                         self.manager.current = "chat"
 
                 Clock.schedule_once(go, 0)
@@ -453,31 +469,56 @@ class ChooseScreen(Screen):
             _popup("Error", "Invalid subscription plan.")
             return
 
-        def purchase_flow():
+        if platform == "android":
+            if not self.billing_manager or not self.billing_manager.connected:
+                # Try to reconnect or warn
+                if self.billing_manager:
+                     self.billing_manager.start_connection()
+                _popup("Error", "Billing service connecting... Please try again.")
+                return
+            
+            sku = SKU_MAPPING.get(plan_key)
+            if not sku:
+                _popup("Error", "Product configuration error.")
+                return
+
+            self.billing_manager.purchase(sku)
+        else:
+            _popup("Info", "Google Play Billing is only available on Android.")
+
+    def _on_billing_success(self, sku, purchase_token, order_id):
+        # Identify plan from SKU
+        plan_key = None
+        for k, v in SKU_MAPPING.items():
+            if v == sku:
+                plan_key = k
+                break
+        
+        if not plan_key:
+            plan_key = "unknown"
+
+        def verify_server():
             try:
-                # Mock purchase token
-                purchase_token = f"mock_token_{plan_key}"
                 valid = api_verify_subscription(purchase_token=purchase_token, plan_key=plan_key)
                 if not valid:
-                    raise ApiError("Subscription verification failed.")
+                    # In production, you might want to retry or not consume, but here we just warn
+                    raise ApiError("Server verification failed.")
 
                 u = get_user() or {}
                 u["is_subscribed"] = True
                 set_user(u)
                 
-                # Unlock gender spinner
-                def unlock(*_):
-                    spinner = self.ids.get("pref_spinner")
-                    if spinner:
-                        spinner.disabled = False
-                    _popup("Success", f"Subscription activated: {plan_key}")
-                    
-                Clock.schedule_once(unlock, 0)
-
+                Clock.schedule_once(lambda dt: self._unlock_ui(plan_key), 0)
             except Exception as exc:
                 _popup("Subscription Error", str(exc))
 
-        Thread(target=purchase_flow, daemon=True).start()
+        Thread(target=verify_server, daemon=True).start()
+
+    def _unlock_ui(self, plan_key):
+        spinner = self.ids.get("pref_spinner")
+        if spinner:
+            spinner.disabled = False
+        _popup("Success", f"Subscription activated!")
 
     def logout(self) -> None:
         clear()

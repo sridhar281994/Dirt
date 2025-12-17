@@ -250,3 +250,20 @@ def api_get_history() -> Dict[str, Any]:
     )
     _raise(r)
     return r.json()
+
+
+def api_report_user(*, reported_user_id: int | None = None, reason: str, details: str | None = None, context: str | None = None) -> Dict[str, Any]:
+    r = requests.post(
+        f"{_base_url()}/api/reports",
+        json={
+            "reported_user_id": reported_user_id,
+            "reason": reason,
+            "details": details,
+            "context": context
+        },
+        headers=_headers(auth=True),
+        timeout=20,
+        verify=False,
+    )
+    _raise(r)
+    return r.json()

@@ -8,7 +8,7 @@ from kivy.clock import Clock
 from kivy.properties import BooleanProperty, NumericProperty, StringProperty
 from kivy.uix.screenmanager import Screen
 
-from frontend_app.utils.api import ApiError, api_video_match, api_video_end
+from frontend_app.utils.api import ApiError, api_video_match, api_video_end, api_get_messages, api_post_message
 
 
 class VideoScreen(Screen):
@@ -22,20 +22,27 @@ class VideoScreen(Screen):
     match_desc = StringProperty("")
     match_image_url = StringProperty("")
     match_is_online = BooleanProperty(False)
+    match_user_id = NumericProperty(0) # Store ID for reporting
 
     duration_seconds = NumericProperty(0)
     remaining_seconds = NumericProperty(0)
 
+    controls_visible = BooleanProperty(True)
+    
     _ticker = None
+    _chat_ticker = None
     last_preference = StringProperty("both")
 
     def on_enter(self, *args):
         """Start camera when entering the screen."""
         self._start_camera()
+        self.controls_visible = True
+        self._start_chat_polling()
 
     def on_leave(self, *args):
         """Stop camera when leaving the screen."""
         self._stop_camera()
+        self._stop_chat_polling()
 
     def _start_camera(self):
         """Start the local camera preview."""
@@ -74,6 +81,7 @@ class VideoScreen(Screen):
                     self.match_country = str(match.get("country") or "")
                     self.match_desc = str(match.get("description") or "")
                     self.match_is_online = bool(match.get("is_online") or False)
+                    self.match_user_id = int(match.get("id") or 0)
                     
                     # Set image URL with fallback
                     raw_img = str(match.get("image_url") or "")
@@ -115,11 +123,103 @@ class VideoScreen(Screen):
         self.start_random(preference=self.last_preference)
 
     def open_chat(self) -> None:
-        if not self.manager or self.session_id <= 0:
+        # Chat is now an overlay on this screen.
+        # Ensure controls are visible so chat is visible.
+        self.controls_visible = True
+        pass
+
+    def report_user(self):
+        if self.match_user_id > 0:
+            from frontend_app.utils.report_popup import show_report_popup
+            show_report_popup(reported_user_id=self.match_user_id, context="video")
+        else:
+            # Generic report if no user matched yet? Or ignore
+            pass
+
+    def toggle_controls(self):
+        self.controls_visible = not self.controls_visible
+
+    def _start_chat_polling(self):
+        self._stop_chat_polling()
+        self._chat_ticker = Clock.schedule_interval(self._poll_chat, 2.0)
+        # Initial poll
+        self._poll_chat(0)
+
+    def _stop_chat_polling(self):
+        if self._chat_ticker:
+            self._chat_ticker.cancel()
+            self._chat_ticker = None
+
+    def _poll_chat(self, _dt):
+        if self.session_id <= 0:
             return
-        chat = self.manager.get_screen("chat")
-        chat.set_session(session_id=self.session_id, mode="text")
-        self.manager.current = "chat"
+        
+        def work():
+            try:
+                data = api_get_messages(session_id=self.session_id)
+                msgs = data.get("messages") or []
+                
+                def update_ui(*_):
+                    box = self.ids.get("chat_box")
+                    if not box:
+                        return
+                    
+                    # Simple optimization: check if count changed or just clear/redraw
+                    # For a robust app, we'd diff. For now, clear/redraw is fine for small chats.
+                    # But clear_widgets is expensive.
+                    # Let's just clear and redraw for now to ensure correctness.
+                    box.clear_widgets()
+                    
+                    from kivy.uix.label import Label
+                    for m in msgs:
+                        # sender = "Me" if int(m.get('sender_id') or 0) == ... else "Partner"
+                        # We don't have easy access to my user ID here without get_user()
+                        # But we can just show message content.
+                        msg_text = str(m.get("message") or "")
+                        lbl = Label(
+                            text=msg_text,
+                            size_hint_y=None,
+                            height=30,
+                            halign="left",
+                            valign="middle",
+                            text_size=(box.width, None),
+                            color=(1, 1, 1, 1)
+                        )
+                        lbl.bind(texture_size=lbl.setter('size'))
+                        # Force height update
+                        def resize(instance, value):
+                            instance.height = value[1]
+                        lbl.bind(texture_size=resize)
+                        
+                        box.add_widget(lbl)
+                        
+                Clock.schedule_once(update_ui, 0)
+            except Exception:
+                pass
+
+        Thread(target=work, daemon=True).start()
+
+    def send_message(self):
+        sid = int(self.session_id or 0)
+        inp = self.ids.get("chat_input")
+        if not inp or sid <= 0:
+            return
+            
+        msg = (inp.text or "").strip()
+        if not msg:
+            return
+            
+        inp.text = "" # Clear immediately
+        
+        def work():
+            try:
+                api_post_message(session_id=sid, message=msg)
+                # Force poll
+                Clock.schedule_once(self._poll_chat, 0.1)
+            except Exception:
+                pass
+        
+        Thread(target=work, daemon=True).start()
 
     def go_back(self):
         self._stop_timer()

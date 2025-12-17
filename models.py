@@ -90,3 +90,32 @@ class Swipe(Base):
     target_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     direction = Column(String, nullable=False)  # "left" | "right"
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class Report(Base):
+    __tablename__ = "reports"
+
+    id = Column(Integer, primary_key=True)
+    reporter_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    reported_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True) # Optional if reporting generic content or system
+    reason = Column(String, nullable=False)
+    details = Column(Text, nullable=True)
+    context = Column(String, nullable=True) # "video", "chat", "public_chat"
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    reporter = relationship("User", foreign_keys=[reporter_id])
+    reported_user = relationship("User", foreign_keys=[reported_user_id])
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    product_id = Column(String, nullable=False)
+    purchase_token = Column(String, nullable=False, unique=True)
+    expiry_time_millis = Column(String, nullable=True) # Storing as string to handle large longs safely or BigInteger
+    status = Column(String, default="active", nullable=False) # active, expired, canceled
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", backref="subscriptions")
