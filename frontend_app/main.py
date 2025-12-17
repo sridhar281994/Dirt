@@ -14,6 +14,7 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.label import Label
 from kivy.clock import Clock
 from kivy.utils import platform
+from kivy.logger import Logger
 
 from frontend_app.screens.Choose_screen import ChooseScreen
 from frontend_app.screens.chat_screen import ChatScreen
@@ -71,12 +72,19 @@ class ChatApp(App):
     def on_start(self):
         """Request permissions on Android."""
         if platform == "android":
-            from android.permissions import request_permissions, Permission
-            request_permissions([
-                Permission.CAMERA,
-                Permission.RECORD_AUDIO,
-                Permission.INTERNET
-            ])
+            try:
+                # INTERNET is a normal permission (not requested at runtime) and may not exist
+                # in android.permissions.Permission, which can crash the app on launch.
+                from android.permissions import request_permissions, Permission
+
+                request_permissions(
+                    [
+                        Permission.CAMERA,
+                        Permission.RECORD_AUDIO,
+                    ]
+                )
+            except Exception:
+                Logger.exception("Failed to request Android runtime permissions")
 
     def update_timer(self, dt):
         user = get_user() or {}
