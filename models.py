@@ -105,3 +105,17 @@ class Report(Base):
 
     reporter = relationship("User", foreign_keys=[reporter_id])
     reported_user = relationship("User", foreign_keys=[reported_user_id])
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    product_id = Column(String, nullable=False)
+    purchase_token = Column(String, nullable=False, unique=True)
+    expiry_time_millis = Column(String, nullable=True) # Storing as string to handle large longs safely or BigInteger
+    status = Column(String, default="active", nullable=False) # active, expired, canceled
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", backref="subscriptions")

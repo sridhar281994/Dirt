@@ -98,63 +98,91 @@ class BillingManager:
         _listeners.append(self.state_listener)
         self.billing_client.startConnection(self.state_listener)
 
-    def query_sku_details(self, sku_list: List[str]):
+    def query_sku_details(self, product_ids: List[str]):
+        """
+        Query product details using BillingClient 5+ API (QueryProductDetailsParams)
+        """
         if not self.connected or not self.billing_client:
             print("BillingManager: Cannot query, not connected.")
             return
 
         from jnius import autoclass, cast, java_method, PythonJavaClass
         
-        SkuDetailsParams = autoclass('com.android.billingclient.api.SkuDetailsParams')
+        QueryProductDetailsParams = autoclass('com.android.billingclient.api.QueryProductDetailsParams')
+        Product = autoclass('com.android.billingclient.api.QueryProductDetailsParams$Product')
         BillingClient = autoclass('com.android.billingclient.api.BillingClient')
         ArrayList = autoclass('java.util.ArrayList')
-        SkuDetailsResponseListener = autoclass('com.android.billingclient.api.SkuDetailsResponseListener')
-
-        sku_list_java = ArrayList()
-        for sku in sku_list:
-            sku_list_java.add(sku)
-
-        params = SkuDetailsParams.newBuilder()
-        params.setSkusList(sku_list_java)
-        params.setType(BillingClient.SkuType.SUBS) # Assuming subscriptions
         
-        class MySkuDetailsResponseListener(PythonJavaClass):
-            __javainterfaces__ = ['com.android.billingclient.api.SkuDetailsResponseListener']
+        product_list_java = ArrayList()
+        for pid in product_ids:
+            # Create Product object for each ID, assuming SUBS type
+            product_builder = Product.newBuilder()
+            product_builder.setProductId(pid)
+            product_builder.setProductType(BillingClient.ProductType.SUBS)
+            product_list_java.add(product_builder.build())
+
+        params_builder = QueryProductDetailsParams.newBuilder()
+        params_builder.setProductList(product_list_java)
+        
+        # ProductDetailsResponseListener
+        class MyProductDetailsResponseListener(PythonJavaClass):
+            __javainterfaces__ = ['com.android.billingclient.api.ProductDetailsResponseListener']
             __javacontext__ = 'app'
 
             def __init__(self, manager):
                 self.manager = manager
 
             @java_method('(Lcom/android/billingclient/api/BillingResult;Ljava/util/List;)V')
-            def onSkuDetailsResponse(self, billingResult, skuDetailsList):
-                if billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK and skuDetailsList:
-                    for skuDetails in skuDetailsList.toArray():
-                        self.manager.sku_details_map[skuDetails.getSku()] = skuDetails
-                    print(f"BillingManager: Loaded {len(skuDetailsList.toArray())} SKUs.")
+            def onProductDetailsResponse(self, billingResult, productDetailsList):
+                if billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK and productDetailsList:
+                    count = 0
+                    for productDetails in productDetailsList.toArray():
+                        self.manager.sku_details_map[productDetails.getProductId()] = productDetails
+                        count += 1
+                    print(f"BillingManager: Loaded {count} Products.")
                 else:
-                    print("BillingManager: Failed to load SKUs.")
+                    print(f"BillingManager: Failed to load products. Code: {billingResult.getResponseCode()}")
 
-        self.sku_listener = MySkuDetailsResponseListener(self)
-        _listeners.append(self.sku_listener)
-        self.billing_client.querySkuDetailsAsync(params.build(), self.sku_listener)
+        self.product_listener = MyProductDetailsResponseListener(self)
+        _listeners.append(self.product_listener)
+        self.billing_client.queryProductDetailsAsync(params_builder.build(), self.product_listener)
 
-    def purchase(self, sku: str):
+    def purchase(self, product_id: str):
         if not self.connected or not self.billing_client:
             print("BillingManager: Not connected.")
             return
 
-        details = self.sku_details_map.get(sku)
+        details = self.sku_details_map.get(product_id)
         if not details:
-            print(f"BillingManager: SKU {sku} details not found. Call query_sku_details first.")
-            # Attempt to query and then fail for now, or just fail
+            print(f"BillingManager: Product {product_id} details not found. Call query_sku_details first.")
             return
 
         from jnius import autoclass
         BillingFlowParams = autoclass('com.android.billingclient.api.BillingFlowParams')
+        ProductDetailsParams = autoclass('com.android.billingclient.api.BillingFlowParams$ProductDetailsParams')
         BillingClient = autoclass('com.android.billingclient.api.BillingClient')
+        ArrayList = autoclass('java.util.ArrayList')
         
-        flowParams = BillingFlowParams.newBuilder().setSkuDetails(details).build()
-        responseCode = self.billing_client.launchBillingFlow(self.activity, flowParams).getResponseCode()
+        # Get offer token (assuming first offer for simplicity, as per user snippet)
+        subscriptionOfferDetails = details.getSubscriptionOfferDetails()
+        if not subscriptionOfferDetails or subscriptionOfferDetails.isEmpty():
+             print("BillingManager: No offer details found for subscription.")
+             return
+        
+        # Taking the first offer token as in user snippet
+        offerToken = subscriptionOfferDetails.get(0).getOfferToken()
+
+        productDetailsParamsBuilder = ProductDetailsParams.newBuilder()
+        productDetailsParamsBuilder.setProductDetails(details)
+        productDetailsParamsBuilder.setOfferToken(offerToken)
+        
+        productDetailsParamsList = ArrayList()
+        productDetailsParamsList.add(productDetailsParamsBuilder.build())
+
+        flowParamsBuilder = BillingFlowParams.newBuilder()
+        flowParamsBuilder.setProductDetailsParamsList(productDetailsParamsList)
+        
+        responseCode = self.billing_client.launchBillingFlow(self.activity, flowParamsBuilder.build()).getResponseCode()
         
         if responseCode != BillingClient.BillingResponseCode.OK:
             print(f"BillingManager: Launch failed with code {responseCode}")
@@ -215,9 +243,13 @@ class BillingManager:
     def _notify_success(self, purchase):
         # Notify callback on main thread
         def callback_main(*_):
-            sku = purchase.getSkus().get(0) # In newer billing client, might be getSkus() returning list
-            # Note: In BillingClient 5+, getSkus() returns ArrayList. 
-            # If using old wrapper, might be different. assuming standard list behavior.
+            # BillingClient 5+: purchase.getProducts() returns List<String>
+            products = purchase.getProducts() 
+            if products and not products.isEmpty():
+                sku = products.get(0)
+            else:
+                sku = "unknown"
+                
             token = purchase.getPurchaseToken()
             order_id = purchase.getOrderId()
             if self.update_callback:
