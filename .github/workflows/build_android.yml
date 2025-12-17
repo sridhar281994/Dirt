@@ -6,6 +6,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      USER: root
+      HOME_DIR: /root    
 
     steps:
       - name: Checkout code
