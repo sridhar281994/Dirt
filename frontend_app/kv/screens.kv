@@ -669,6 +669,14 @@
                         text: "Video Chat"
                         on_release: root.start_video_chat()
 
+            # Random Video Chat Button (moved inside main content)
+            Button:
+                text: "Random Video Chat"
+                size_hint_y: None
+                height: dp(50)
+                background_color: (0.8, 0.2, 0.8, 1)
+                on_release: root.start_random_video_chat()
+
             # Public Chat & Subs
             BoxLayout:
                 orientation: "vertical"
@@ -697,22 +705,13 @@
                 BoxLayout:
                     spacing: dp(5)
                     Button:
-                        text: "Voice: ₹200/hr"
+                        text: "Video: ₹200/hr"
                         font_size: sp(12)
-                        on_release: root.subscribe("voice_hour")
+                        on_release: root.subscribe("video_hour")
                     Button:
-                        text: "Voice: ₹30/10m"
+                        text: "Video: ₹30/10m"
                         font_size: sp(12)
-                        on_release: root.subscribe("voice_10min")
-
-        # Random Video Chat Button
-        Button:
-            text: "Random Video Chat"
-            size_hint: 0.6, None
-            height: dp(50)
-            pos_hint: {"center_x": 0.5, "y": 0.02}
-            background_color: (0.8, 0.2, 0.8, 1)
-            on_release: root.start_random_video_chat()
+                        on_release: root.subscribe("video_10min")
 
 <ChatScreen>:
     name: "chat"
@@ -853,76 +852,152 @@
     FloatLayout:
         canvas.before:
             Color:
-                rgba: 1, 1, 1, 1
+                rgba: 0.05, 0.05, 0.1, 1
             Rectangle:
                 pos: self.pos
                 size: self.size
-                source: "assets/background.png"
 
-        # Notification at top
-        Label:
-            text: "On Video Call"
-            size_hint: 1, None
-            height: dp(30)
-            pos_hint: {"top": 1}
-            color: 1, 0, 0, 1
-            bold: True
-            
+        # Remote Video Area (main view - shows matched user's image/video)
+        BoxLayout:
+            orientation: "vertical"
+            size_hint: 1, 1
+
+            # Remote user video placeholder (their profile image for now)
+            RelativeLayout:
+                size_hint_y: 0.75
+                
+                # Dark background for video area
+                canvas.before:
+                    Color:
+                        rgba: 0.1, 0.1, 0.15, 1
+                    Rectangle:
+                        pos: self.pos
+                        size: self.size
+
+                # Remote user's image (placeholder for remote video stream)
+                AsyncImage:
+                    id: remote_video
+                    source: root.match_image_url or ""
+                    allow_stretch: True
+                    keep_ratio: True
+                    size_hint: 0.9, 0.9
+                    pos_hint: {"center_x": 0.5, "center_y": 0.5}
+
+                # "Connecting..." overlay when no match
+                Label:
+                    text: "Searching for match..." if not root.match_username else ""
+                    font_size: sp(18)
+                    color: 1, 1, 1, 0.8
+                    pos_hint: {"center_x": 0.5, "center_y": 0.5}
+
+                # Remote user info overlay at bottom of video
+                BoxLayout:
+                    size_hint: 1, None
+                    height: dp(50)
+                    pos_hint: {"x": 0, "y": 0}
+                    padding: dp(10)
+                    canvas.before:
+                        Color:
+                            rgba: 0, 0, 0, 0.6
+                        Rectangle:
+                            pos: self.pos
+                            size: self.size
+                    Label:
+                        text: (root.match_name or "Connecting...") + ("  @" + root.match_username if root.match_username else "")
+                        halign: "left"
+                        valign: "middle"
+                        text_size: self.size
+                        shorten: True
+                    Label:
+                        text: root.match_country or ""
+                        size_hint_x: None
+                        width: dp(100)
+                        halign: "right"
+                        valign: "middle"
+                        text_size: self.size
+
+            # Bottom control area
+            BoxLayout:
+                orientation: "vertical"
+                size_hint_y: 0.25
+                padding: dp(10)
+                spacing: dp(10)
+                canvas.before:
+                    Color:
+                        rgba: 0.08, 0.08, 0.12, 1
+                    Rectangle:
+                        pos: self.pos
+                        size: self.size
+
+                # Timer display
+                Label:
+                    text: "Time left: " + str(int(root.remaining_seconds)) + "s"
+                    size_hint_y: None
+                    height: dp(30)
+                    font_size: sp(16)
+                    color: 1, 1, 1, 0.9
+                    bold: True
+
+                # Control buttons
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(60)
+                    spacing: dp(15)
+                    padding: dp(10), 0
+
+                    Button:
+                        text: "End"
+                        font_size: sp(14)
+                        background_color: (0.8, 0.2, 0.2, 1)
+                        on_release: root.go_back()
+
+                    Button:
+                        text: "NEXT"
+                        font_size: sp(14)
+                        background_color: (0.2, 0.8, 0.2, 1)
+                        on_release: root.next_call()
+
+                    Button:
+                        text: "Chat"
+                        font_size: sp(14)
+                        background_color: (0.2, 0.6, 0.9, 1)
+                        on_release: root.open_chat()
+
+        # Local camera preview (small overlay in corner)
+        BoxLayout:
+            size_hint: None, None
+            size: dp(120), dp(160)
+            pos_hint: {"right": 0.98, "top": 0.98}
             canvas.before:
                 Color:
-                    rgba: 0, 0, 0, 0.5
+                    rgba: 0, 0, 0, 1
                 Rectangle:
                     pos: self.pos
                     size: self.size
-
-        BoxLayout:
-            orientation: "vertical"
-            padding: dp(20)
-            spacing: dp(20)
-
-            BoxLayout:
-                size_hint_y: None
-                height: dp(40)
-                spacing: dp(10)
-                Button:
-                    text: "Back"
-                    size_hint_x: None
-                    width: dp(60)
-                    font_size: sp(12)
-                    on_release: root.go_back()
-                Button:
-                    text: "NEXT"
-                    size_hint_x: None
-                    width: dp(60)
-                    font_size: sp(12)
-                    background_color: (0.2, 0.8, 0.2, 1)
-                    on_release: root.next_call()
-                # Removed top Chat button
-                Label:
-                    text: "connected to " + (root.match_username or "user")
-                    bold: True
-
-            Label:
-                text: ""
-                halign: "center"
-                font_size: sp(18)
             
-            Label:
-                text: "Time left: " + str(int(root.remaining_seconds)) + "s"
-                size_hint_y: None
-                height: dp(30)
-                font_size: sp(12)
-                color: 1, 1, 1, 0.7
+            Camera:
+                id: local_camera
+                resolution: (640, 480)
+                play: root.session_id > 0
+                allow_stretch: True
+                keep_ratio: True
 
-        # Bottom Left Chat Button
-        Button:
-            text: "Chat"
+        # "On Video Call" indicator
+        Label:
+            text: "● LIVE" if root.session_id > 0 else "● CONNECTING"
             size_hint: None, None
-            size: dp(60), dp(40)
-            pos_hint: {"x": 0.05, "y": 0.05}
+            size: dp(100), dp(30)
+            pos_hint: {"x": 0.02, "top": 0.98}
             font_size: sp(12)
-            background_color: (0.2, 0.6, 0.9, 1)
-            on_release: root.open_chat()
+            color: (0.2, 1, 0.3, 1) if root.session_id > 0 else (1, 0.8, 0.2, 1)
+            bold: True
+            canvas.before:
+                Color:
+                    rgba: 0, 0, 0, 0.7
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [5]
 
 <UserMatchScreen>:
     name: "user_match"

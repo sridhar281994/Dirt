@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import urllib.parse
 from threading import Thread
 
 from kivy.clock import Clock
@@ -27,6 +29,26 @@ class VideoScreen(Screen):
     _ticker = None
     last_preference = StringProperty("both")
 
+    def on_enter(self, *args):
+        """Start camera when entering the screen."""
+        self._start_camera()
+
+    def on_leave(self, *args):
+        """Stop camera when leaving the screen."""
+        self._stop_camera()
+
+    def _start_camera(self):
+        """Start the local camera preview."""
+        camera = self.ids.get("local_camera")
+        if camera:
+            camera.play = True
+
+    def _stop_camera(self):
+        """Stop the local camera preview."""
+        camera = self.ids.get("local_camera")
+        if camera:
+            camera.play = False
+
     def set_session(self, *, session_id: int):
         self.session_id = int(session_id)
 
@@ -51,8 +73,16 @@ class VideoScreen(Screen):
                     self.match_username = str(match.get("username") or "")
                     self.match_country = str(match.get("country") or "")
                     self.match_desc = str(match.get("description") or "")
-                    self.match_image_url = str(match.get("image_url") or "")
                     self.match_is_online = bool(match.get("is_online") or False)
+                    
+                    # Set image URL with fallback
+                    raw_img = str(match.get("image_url") or "")
+                    if raw_img.strip():
+                        self.match_image_url = self._normalize_image_url(raw_img)
+                    else:
+                        self.match_image_url = self._fallback_avatar_url(
+                            self.match_name or self.match_username or "User"
+                        )
 
                     self.duration_seconds = duration
                     self.remaining_seconds = duration
@@ -133,3 +163,31 @@ class VideoScreen(Screen):
             self.next_call()
             return False
         return True
+
+    @staticmethod
+    def _normalize_image_url(url: str) -> str:
+        """Normalize image URL to absolute URL."""
+        u = (url or "").strip()
+        if not u:
+            return ""
+        if "://" in u:
+            return u
+        base = os.getenv("BACKEND_URL", "https://dirt-0atr.onrender.com")
+        base = (base or "").rstrip("/")
+        if not u.startswith("/"):
+            u = "/" + u
+        return f"{base}{u}"
+
+    @staticmethod
+    def _fallback_avatar_url(name: str) -> str:
+        """Generate a placeholder avatar URL."""
+        n = (name or "User").strip() or "User"
+        return "https://ui-avatars.com/api/?" + urllib.parse.urlencode(
+            {
+                "name": n,
+                "background": "222222",
+                "color": "ffffff",
+                "size": "512",
+                "bold": "true",
+            }
+        )
