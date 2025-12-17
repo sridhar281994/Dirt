@@ -32,11 +32,15 @@ version = 0.1
 
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
-requirements = python3,kivy,kivymd,pillow,requests
+requirements = python3,kivy,kivymd,pillow,requests,pyjnius
 
 # (str) Custom source folders for requirements
 # Sets custom source for any requirements with recipes
 # requirements.source.kivy = ../../kivy
+
+# (bool) Enable AndroidX support. Enable when 'android.api' >= 28.
+android.enable_androidx = True
+
 
 # (str) Presplash of the application
 #presplash.filename = %(source.dir)s/data/presplash.png
