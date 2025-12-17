@@ -1,5 +1,15 @@
+#:import CustomSpinner frontend_app.screens.Choose_screen.CustomSpinner
+
 # Common background mixin logic or applied to each screen directly
 # We will apply 'assets/background.png' to each screen's canvas.before.
+
+<WideSpinnerOption@SpinnerOption>:
+    font_size: sp(14)
+    height: dp(44)
+    size_hint_x: None
+    width: dp(160)
+    halign: "center"
+    valign: "middle"
 
 <SmallSpinnerOption@SpinnerOption>:
     font_size: sp(12)
@@ -514,10 +524,10 @@
         # Top Bar
         BoxLayout:
             size_hint: 1, None
-            height: dp(72)
+            height: dp(60)
             pos_hint: {"top": 1}
-            padding: dp(10)
-            spacing: dp(10)
+            padding: dp(5)
+            spacing: dp(5)
             canvas.before:
                 Color:
                     rgba: 0.1, 0.1, 0.1, 0.7
@@ -528,7 +538,7 @@
             Label:
                 markup: True
                 text: (root.my_name or "Loading...") + (("\n[size=12sp]" + root.my_desc + "[/size]") if root.my_desc else "")
-                size_hint_x: 0.32
+                size_hint_x: 1
                 text_size: self.size
                 halign: "left"
                 valign: "middle"
@@ -536,9 +546,11 @@
 
             Label:
                 text: root.my_country or ""
-                size_hint_x: 0.23
+                size_hint_x: None
+                width: dp(60)
+                font_size: sp(11)
                 text_size: self.size
-                halign: "left"
+                halign: "center"
                 valign: "middle"
                 shorten: True
 
@@ -546,17 +558,21 @@
                 id: pref_spinner
                 text: "Both"
                 values: ["Male", "Female", "Both"]
-                size_hint_x: 0.2
+                size_hint_x: None
+                width: dp(90)
+                halign: "center"
+                valign: "middle"
                 on_text: root.set_preference(self.text)
 
-            Spinner:
+            CustomSpinner:
                 id: settings_spinner
                 text: "⚙️"
                 values: ["Subscribe", "History", "Change Password", "Logout"]
-                option_cls: "SmallSpinnerOption"
-                font_size: sp(12)
+                option_cls: "WideSpinnerOption"
+                dropdown_width: dp(160)
+                font_size: sp(20)
                 size_hint_x: None
-                width: dp(160)
+                width: dp(50)
                 background_color: (0.2, 0.2, 0.2, 1)
                 on_text: root.on_settings_select(self.text)
 

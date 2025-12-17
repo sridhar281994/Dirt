@@ -30,7 +30,10 @@ class WelcomeScreen(Screen):
 
 class ChatApp(App):
     def build(self):
-        Builder.load_file("kv/screens.kv")
+        self.title = "frends-Chat"
+        app_dir = os.path.dirname(__file__)
+        self.icon = os.path.join(app_dir, "assets", "icon.png")
+        Builder.load_file(os.path.join(app_dir, "kv", "screens.kv"))
 
         self.sm = ScreenManager()
         self.sm.add_widget(WelcomeScreen(name="welcome"))
