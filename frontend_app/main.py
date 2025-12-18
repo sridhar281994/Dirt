@@ -19,18 +19,13 @@ from kivy.lang import Builder
 from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.label import Label
+from kivy.uix.scrollview import ScrollView
 from kivy.clock import Clock
+from kivy.logger import Logger
 from kivy.utils import platform
 
-from frontend_app.screens.Choose_screen import ChooseScreen
-from frontend_app.screens.chat_screen import ChatScreen
-from frontend_app.screens.login_screen import LoginScreen
-from frontend_app.screens.public_chat_screen import PublicChatScreen
-from frontend_app.screens.register_screen import RegisterScreen
-from frontend_app.screens.video_screen import VideoScreen
-from frontend_app.screens.reset_password_screen import ForgotPasswordScreen, ResetPasswordScreen
-from frontend_app.screens.usermatch_screen import UserMatchScreen
 from frontend_app.utils.storage import get_user
+import traceback
 
 class WelcomeScreen(Screen):
     pass
@@ -40,40 +35,81 @@ class ChatApp(App):
         self.title = "frends-Chat"
         app_dir = os.path.dirname(__file__)
         self.icon = os.path.join(app_dir, "assets", "icon.png")
-        Builder.load_file(os.path.join(app_dir, "kv", "screens.kv"))
+        try:
+            # Load KV first (this can crash if any widget/class is unknown).
+            Builder.load_file(os.path.join(app_dir, "kv", "screens.kv"))
 
-        self.sm = ScreenManager()
-        self.sm.add_widget(WelcomeScreen(name="welcome"))
-        self.sm.add_widget(LoginScreen(name="login"))
-        self.sm.add_widget(RegisterScreen(name="register"))
-        self.sm.add_widget(ForgotPasswordScreen(name="forgot_password"))
-        self.sm.add_widget(ResetPasswordScreen(name="reset_password"))
-        self.sm.add_widget(ChooseScreen(name="choose"))
-        self.sm.add_widget(ChatScreen(name="chat"))
-        self.sm.add_widget(PublicChatScreen(name="public_chat"))
-        self.sm.add_widget(VideoScreen(name="video"))
-        self.sm.add_widget(UserMatchScreen(name="user_match"))
+            # Import screens lazily so we can show a readable error screen
+            # instead of hard-closing on startup.
+            from frontend_app.screens.Choose_screen import ChooseScreen
+            from frontend_app.screens.chat_screen import ChatScreen
+            from frontend_app.screens.login_screen import LoginScreen
+            from frontend_app.screens.public_chat_screen import PublicChatScreen
+            from frontend_app.screens.register_screen import RegisterScreen
+            from frontend_app.screens.video_screen import VideoScreen
+            from frontend_app.screens.reset_password_screen import ForgotPasswordScreen, ResetPasswordScreen
+            from frontend_app.screens.usermatch_screen import UserMatchScreen
 
-        self.sm.current = "welcome"
+            self.sm = ScreenManager()
+            self.sm.add_widget(WelcomeScreen(name="welcome"))
+            self.sm.add_widget(LoginScreen(name="login"))
+            self.sm.add_widget(RegisterScreen(name="register"))
+            self.sm.add_widget(ForgotPasswordScreen(name="forgot_password"))
+            self.sm.add_widget(ResetPasswordScreen(name="reset_password"))
+            self.sm.add_widget(ChooseScreen(name="choose"))
+            self.sm.add_widget(ChatScreen(name="chat"))
+            self.sm.add_widget(PublicChatScreen(name="public_chat"))
+            self.sm.add_widget(VideoScreen(name="video"))
+            self.sm.add_widget(UserMatchScreen(name="user_match"))
 
-        # Root layout to hold ScreenManager and overlay Timer
-        root = FloatLayout()
-        root.add_widget(self.sm)
+            self.sm.current = "welcome"
 
-        # Timer Label (Overlay)
-        self.timer_label = Label(
-            text="",
-            size_hint=(None, None),
-            size=(200, 50),
-            pos_hint={'top': 1, 'right': 1},
-            color=(0, 1, 0, 1),
-            bold=True
-        )
-        root.add_widget(self.timer_label)
+            # Root layout to hold ScreenManager and overlay Timer
+            root = FloatLayout()
+            root.add_widget(self.sm)
 
-        Clock.schedule_interval(self.update_timer, 1.0)
+            # Timer Label (Overlay)
+            self.timer_label = Label(
+                text="",
+                size_hint=(None, None),
+                size=(200, 50),
+                pos_hint={"top": 1, "right": 1},
+                color=(0, 1, 0, 1),
+                bold=True,
+            )
+            root.add_widget(self.timer_label)
 
-        return root
+            Clock.schedule_interval(self.update_timer, 1.0)
+            return root
+
+        except Exception:
+            # If the app crashes on Android, users only see the Python logo briefly.
+            # This keeps the app alive and shows the real error + puts it in logcat.
+            tb = traceback.format_exc()
+            Logger.exception("App crashed during build()")
+            print(tb)
+
+            sv = ScrollView()
+            lbl = Label(
+                text=tb,
+                size_hint_y=None,
+                text_size=(self._get_window_width(), None),
+                halign="left",
+                valign="top",
+            )
+            # Make label tall enough to scroll.
+            lbl.bind(texture_size=lambda _i, s: setattr(lbl, "height", s[1] + 40))
+            sv.add_widget(lbl)
+            return sv
+
+    @staticmethod
+    def _get_window_width() -> int:
+        try:
+            from kivy.core.window import Window
+
+            return int(Window.width or 360)
+        except Exception:
+            return 360
 
     def on_start(self):
         """Request permissions on Android."""
