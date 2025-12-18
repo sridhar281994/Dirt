@@ -112,23 +112,33 @@ class ChatApp(App):
             return 360
 
     def on_start(self):
-        """Request permissions on Android."""
-        if platform == "android":
-            try:
-                from android.permissions import request_permissions, Permission
+        """
+        Android runtime permissions.
 
-                # INTERNET is a normal permission (not runtime/dangerous) and may not exist
-                # in android.permissions.Permission on some setups. Only request runtime ones.
-                request_permissions([Permission.CAMERA, Permission.RECORD_AUDIO])
-            except Exception as exc:
-                # Make startup failures visible in logcat.
+        Important: some python-for-android/android.permissions versions will crash if
+        `request_permissions()` is called without a callback (the result delivery tries
+        to call a None callback). Always provide a callback and never start camera/mic
+        until permission is confirmed (handled in VideoScreen).
+        """
+        if platform != "android":
+            return
+
+        try:
+            from android.permissions import Permission, request_permissions  # type: ignore
+
+            perms = [Permission.CAMERA, Permission.RECORD_AUDIO]
+
+            def _on_permissions_result(permissions, grants):
                 try:
-                    import traceback
-
-                    print("Permission request failed:", exc)
-                    print(traceback.format_exc())
+                    pairs = list(zip(list(permissions or []), list(grants or [])))
+                    Logger.info("Permissions: %s", pairs)
                 except Exception:
-                    pass
+                    Logger.exception("Permissions callback failed")
+
+            request_permissions(perms, _on_permissions_result)
+        except Exception:
+            # Make startup failures visible in logcat.
+            Logger.exception("Permission request failed during on_start()")
 
     def update_timer(self, dt):
         user = get_user() or {}

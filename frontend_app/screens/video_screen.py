@@ -7,6 +7,8 @@ from threading import Thread
 from kivy.clock import Clock
 from kivy.properties import BooleanProperty, NumericProperty, StringProperty
 from kivy.uix.screenmanager import Screen
+from kivy.utils import platform
+from kivy.logger import Logger
 
 from frontend_app.utils.api import ApiError, api_video_match, api_video_end, api_get_messages, api_post_message
 
@@ -28,14 +30,20 @@ class VideoScreen(Screen):
     remaining_seconds = NumericProperty(0)
 
     controls_visible = BooleanProperty(True)
+    camera_permission_granted = BooleanProperty(False)
+    audio_permission_granted = BooleanProperty(False)
     
     _ticker = None
     _chat_ticker = None
     last_preference = StringProperty("both")
 
+    def on_pre_enter(self, *args):
+        # Refresh permission flags whenever screen is about to show.
+        self._refresh_android_permission_state()
+
     def on_enter(self, *args):
-        """Start camera when entering the screen."""
-        self._start_camera()
+        """Ensure permissions and start camera when entering the screen."""
+        self._ensure_android_av_permissions()
         self.controls_visible = True
         self._start_chat_polling()
 
@@ -46,15 +54,86 @@ class VideoScreen(Screen):
 
     def _start_camera(self):
         """Start the local camera preview."""
+        # Only start if session is active and permission is granted.
+        if int(self.session_id or 0) <= 0:
+            return
+        if platform == "android" and not bool(self.camera_permission_granted):
+            return
+
         camera = self.ids.get("local_camera")
         if camera:
-            camera.play = True
+            try:
+                camera.play = True
+            except Exception:
+                Logger.exception("Failed to start camera preview")
 
     def _stop_camera(self):
         """Stop the local camera preview."""
         camera = self.ids.get("local_camera")
         if camera:
             camera.play = False
+
+    def _refresh_android_permission_state(self) -> None:
+        if platform != "android":
+            # Non-Android: assume permission is available.
+            self.camera_permission_granted = True
+            self.audio_permission_granted = True
+            return
+
+        try:
+            from android.permissions import Permission, check_permission  # type: ignore
+
+            self.camera_permission_granted = bool(check_permission(Permission.CAMERA))
+            self.audio_permission_granted = bool(check_permission(Permission.RECORD_AUDIO))
+        except Exception:
+            # If we cannot check, be conservative and treat as not granted.
+            self.camera_permission_granted = False
+            self.audio_permission_granted = False
+
+    def _ensure_android_av_permissions(self) -> None:
+        """
+        Request camera + mic permissions if needed.
+
+        Critical: start camera only AFTER the permission callback confirms grants.
+        """
+        self._refresh_android_permission_state()
+
+        # If already granted (or not Android), just start.
+        if bool(self.camera_permission_granted) and bool(self.audio_permission_granted):
+            self._start_camera()
+            return
+
+        if platform != "android":
+            self._start_camera()
+            return
+
+        try:
+            from android.permissions import Permission, request_permissions  # type: ignore
+
+            perms = [Permission.CAMERA, Permission.RECORD_AUDIO]
+
+            def _cb(permissions, grants):
+                # This callback may be invoked off the main thread; use Clock to touch UI.
+                def _apply(*_):
+                    try:
+                        # Refresh from system, don't trust raw grants format.
+                        self._refresh_android_permission_state()
+                        if self.camera_permission_granted and self.audio_permission_granted:
+                            self._start_camera()
+                        else:
+                            Logger.warning(
+                                "VideoScreen: permissions denied. camera=%s audio=%s",
+                                self.camera_permission_granted,
+                                self.audio_permission_granted,
+                            )
+                    except Exception:
+                        Logger.exception("VideoScreen: failed handling permission result")
+
+                Clock.schedule_once(_apply, 0)
+
+            request_permissions(perms, _cb)
+        except Exception:
+            Logger.exception("VideoScreen: permission request failed")
 
     def set_session(self, *, session_id: int):
         self.session_id = int(session_id)
