@@ -1023,7 +1023,8 @@
             Camera:
                 id: local_camera
                 resolution: (640, 480)
-                play: root.session_id > 0
+                # Only play when session is active AND permission granted
+                play: (root.session_id > 0) and root.camera_permission_granted
                 fit_mode: "contain"
 
         # "On Video Call" indicator
