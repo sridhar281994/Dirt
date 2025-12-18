@@ -252,6 +252,5 @@ core/*
 utils/*
 database.py
 models.py
-main.py
 render-db-migrate.yml
 requirements.txt
