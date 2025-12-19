@@ -15,12 +15,18 @@ class CustomSpinner(Spinner):
     def __init__(self, **kwargs):
         self.dropdown_width = kwargs.pop('dropdown_width', None)
         super().__init__(**kwargs)
+        # Don't touch Spinner internals during KV rule application.
+        # Ensure we only resize the dropdown once it exists.
+        Clock.schedule_once(self._update_dropdown_size, 0)
+        self.bind(on_release=self._update_dropdown_size)
 
     def _update_dropdown_size(self, *largs):
         if self.dropdown_width:
-            self.dropdown.width = self.dropdown_width
-        else:
-            super()._update_dropdown_size(*largs)
+            dropdown = getattr(self, "_dropdown", None)
+            if dropdown:
+                dropdown.width = self.dropdown_width
+            return
+        super()._update_dropdown_size(*largs)
 
 
 from frontend_app.utils.api import (
