@@ -32,6 +32,7 @@ class VideoScreen(Screen):
     controls_visible = BooleanProperty(True)
     camera_permission_granted = BooleanProperty(False)
     audio_permission_granted = BooleanProperty(False)
+    is_muted = BooleanProperty(False)
     
     _ticker = None
     _chat_ticker = None
@@ -52,6 +53,21 @@ class VideoScreen(Screen):
         self._stop_camera()
         self._stop_chat_polling()
 
+    def on_session_id(self, _instance, value):  # type: ignore[override]
+        """
+        Start/stop local preview when session becomes active.
+        This also covers the random-match flow where session_id is set later.
+        """
+        try:
+            sid = int(value or 0)
+        except Exception:
+            sid = 0
+
+        if sid > 0:
+            self._ensure_android_av_permissions()
+        else:
+            self._stop_camera()
+
     def _start_camera(self):
         """Start the local camera preview."""
         # Only start if session is active and permission is granted.
@@ -63,6 +79,9 @@ class VideoScreen(Screen):
         camera = self.ids.get("local_camera")
         if camera:
             try:
+                # Ensure index triggers only when we're ready (AndroidSafeCamera uses -1 as disconnected).
+                if hasattr(camera, "index") and int(getattr(camera, "index", -1) or -1) < 0:
+                    camera.index = 0
                 camera.play = True
             except Exception:
                 Logger.exception("Failed to start camera preview")
@@ -71,7 +90,15 @@ class VideoScreen(Screen):
         """Stop the local camera preview."""
         camera = self.ids.get("local_camera")
         if camera:
-            camera.play = False
+            try:
+                camera.play = False
+            except Exception:
+                pass
+            try:
+                if hasattr(camera, "index"):
+                    camera.index = -1
+            except Exception:
+                pass
 
     def _refresh_android_permission_state(self) -> None:
         if platform != "android":
@@ -174,6 +201,8 @@ class VideoScreen(Screen):
                     self.duration_seconds = duration
                     self.remaining_seconds = duration
                     self._start_timer()
+                    # If permissions are already granted, start local preview immediately.
+                    self._ensure_android_av_permissions()
 
                 Clock.schedule_once(apply, 0)
             except ApiError as exc:
@@ -314,6 +343,31 @@ class VideoScreen(Screen):
 
         if self.manager:
             self.manager.current = "choose"
+
+    def toggle_mute(self) -> None:
+        """
+        Toggle local microphone mute (Android).
+
+        Note: This does not implement a full WebRTC/Agora pipeline; it only mutes
+        the device mic input using Android's AudioManager so the UI has a working
+        mute switch.
+        """
+        self.is_muted = not bool(self.is_muted)
+
+        if platform != "android":
+            return
+
+        try:
+            from jnius import autoclass, cast  # type: ignore
+
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            context = PythonActivity.mActivity
+            AudioManager = autoclass("android.media.AudioManager")
+            service = context.getSystemService(context.AUDIO_SERVICE)
+            am = cast("android.media.AudioManager", service)
+            am.setMicrophoneMute(bool(self.is_muted))
+        except Exception:
+            Logger.exception("VideoScreen: failed to toggle microphone mute")
 
     def _start_timer(self) -> None:
         self._stop_timer()

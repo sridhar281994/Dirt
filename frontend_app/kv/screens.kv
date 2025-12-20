@@ -1,4 +1,5 @@
 #:import CustomSpinner frontend_app.screens.Choose_screen.CustomSpinner
+#:import AndroidSafeCamera frontend_app.widgets.safe_camera.AndroidSafeCamera
 
 # Common background mixin logic or applied to each screen directly
 # We will apply 'assets/background.png' to each screen's canvas.before.
@@ -566,7 +567,8 @@
 
             CustomSpinner:
                 id: settings_spinner
-                text: "⚙️"
+                # Avoid unicode emoji glyphs (often render as tofu on Android).
+                text: "..."
                 values: ["Subscribe", "History", "Change Password", "Logout"]
                 option_cls: "WideSpinnerOption"
                 dropdown_width: dp(160)
@@ -648,23 +650,35 @@
                     padding: dp(10)
 
                     Button:
-                        text: "←" # Left / Pass
+                        # Use built-in Kivy atlas icon (no emoji fonts needed).
+                        text: ""
                         font_size: sp(30)
                         size_hint_x: None
                         width: dp(60)
                         background_color: (0.8, 0.2, 0.2, 1)
                         on_release: root.swipe_left()
+                        Image:
+                            source: "atlas://data/images/defaulttheme/previous_normal"
+                            size_hint: None, None
+                            size: dp(26), dp(26)
+                            center: self.parent.center
 
                     Widget:
                         size_hint_x: 1
 
                     Button:
-                        text: "→" # Right / Like
+                        # Use built-in Kivy atlas icon (no emoji fonts needed).
+                        text: ""
                         font_size: sp(30)
                         size_hint_x: None
                         width: dp(60)
                         background_color: (0.2, 0.8, 0.2, 1)
                         on_release: root.swipe_right()
+                        Image:
+                            source: "atlas://data/images/defaulttheme/media-playback-start"
+                            size_hint: None, None
+                            size: dp(26), dp(26)
+                            center: self.parent.center
 
                 # Chat Buttons
                 BoxLayout:
@@ -889,10 +903,19 @@
             #         pos: self.pos
             #         size: self.size
 
-            # Remote user's image (placeholder for remote video stream)
+            # Remote video area:
+            # - keep it BLACK until connected
+            # - show remote image as a lightweight placeholder once a match exists
+            canvas.before:
+                Color:
+                    rgba: 0, 0, 0, 1
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
+
             AsyncImage:
                 id: remote_video
-                source: root.match_image_url or ""
+                source: root.match_image_url if root.session_id > 0 and root.match_username else ""
                 fit_mode: "contain"
                 size_hint: 1, 1
                 pos_hint: {"center_x": 0.5, "center_y": 0.5}
@@ -903,6 +926,12 @@
                 font_size: sp(18)
                 color: 1, 1, 1, 0.8
                 pos_hint: {"center_x": 0.5, "center_y": 0.5}
+
+            Label:
+                text: "Connecting..." if root.session_id > 0 and not root.match_username else ""
+                font_size: sp(16)
+                color: 1, 1, 1, 0.7
+                pos_hint: {"center_x": 0.5, "center_y": 0.45}
 
         # Tap Handler to toggle controls
         Button:
@@ -995,6 +1024,11 @@
                     text: "End"
                     background_color: 0.8, 0.2, 0.2, 1
                     on_release: root.go_back()
+
+                Button:
+                    text: ("Unmute" if root.is_muted else "Mute")
+                    background_color: (0.3, 0.3, 0.3, 1)
+                    on_release: root.toggle_mute()
                 
                 Button:
                     text: "Next"
@@ -1020,7 +1054,7 @@
                     pos: self.pos
                     size: self.size
             
-            Camera:
+            AndroidSafeCamera:
                 id: local_camera
                 resolution: (640, 480)
                 # Only play when session is active AND permission granted

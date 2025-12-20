@@ -138,7 +138,7 @@ class ChooseScreen(Screen):
         # Reset spinner text
         spinner = self.ids.get("settings_spinner")
         if spinner:
-            spinner.text = "⚙️"
+            spinner.text = "..."
 
     def set_preference(self, value: str) -> None:
         v = (value or "").strip().lower()

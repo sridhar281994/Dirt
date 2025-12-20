@@ -240,8 +240,15 @@ __pycache__/*
 *.pyc
 *.pyo
 *.pyd
+*.zip
 .git/*
 .github/*
+.buildozer/*
+bin/*
+tmp_kivy221/*
+tmp_kivyzip/*
+tmp_kivysdist/*
+tmp_*/*
 app.db
 *.db
 *.sqlite

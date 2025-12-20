@@ -1,0 +1,2 @@
+"""Frontend app reusable widgets."""
+
