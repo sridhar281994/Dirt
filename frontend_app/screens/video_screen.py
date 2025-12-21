@@ -467,7 +467,9 @@ class VideoScreen(Screen):
     def _fallback_avatar_url(name: str) -> str:
         """Generate a placeholder avatar URL."""
         n = (name or "User").strip() or "User"
-        return "https://ui-avatars.com/api/?" + urllib.parse.urlencode(
+        # Use http to avoid SSL verification failures in some Windows/corporate setups.
+        # This is only used for a non-sensitive placeholder avatar.
+        return "http://ui-avatars.com/api/?" + urllib.parse.urlencode(
             {
                 "name": n,
                 "background": "222222",
