@@ -10,6 +10,7 @@ from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen
 
 from frontend_app.utils.api import ApiError, api_forgot_password_request_otp, api_forgot_password_reset
+from frontend_app.utils.storage import get_user
 
 
 def _safe_text(screen: Screen, wid: str) -> str:
@@ -38,10 +39,42 @@ class ForgotPasswordScreen(Screen):
     Then navigate to ResetPasswordScreen.
     """
     otp_stage_ready = BooleanProperty(False)
+    return_to = StringProperty("login")
+    header_text = StringProperty("Forgot Password")
 
     def go_back(self) -> None:
         if self.manager:
-            self.manager.current = "login"
+            # When opened from Choose ("Change Password"), Back should return to Choose.
+            target = (self.return_to or "login").strip() or "login"
+            self.manager.current = target
+
+    def open_from(self, *, source_screen: str = "login", title: str = "Forgot Password") -> None:
+        """
+        Configure this screen when opened from different places.
+
+        - login -> Forgot Password flow
+        - choose -> Change Password flow (Back should return to Choose)
+        """
+        self.return_to = (source_screen or "login").strip() or "login"
+        self.header_text = (title or "Forgot Password").strip() or "Forgot Password"
+        self.otp_stage_ready = False
+        # Clear inputs when reopening.
+        try:
+            if "otp_input" in self.ids:
+                self.ids["otp_input"].text = ""
+        except Exception:
+            pass
+        try:
+            if "phone_input" in self.ids:
+                # If invoked from Choose, prefill identifier when available.
+                if self.return_to == "choose":
+                    u = get_user() or {}
+                    ident = str(u.get("email") or u.get("username") or u.get("phone") or "")
+                    self.ids["phone_input"].text = ident
+                else:
+                    self.ids["phone_input"].text = ""
+        except Exception:
+            pass
 
     def send_reset_otp(self) -> None:
         identifier = _safe_text(self, "phone_input")

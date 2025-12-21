@@ -128,6 +128,10 @@ class ChooseScreen(Screen):
             _popup("Info", "Select a plan from the bottom menu.")
         elif text == "Change Password":
             if self.manager:
+                # Reuse the OTP-based flow, but make Back return here.
+                fp = self.manager.get_screen("forgot_password")
+                if hasattr(fp, "open_from"):
+                    fp.open_from(source_screen="choose", title="Change Password")
                 self.manager.current = "forgot_password"
         elif text == "History":
             if self.manager:

@@ -248,6 +248,29 @@ class VideoScreen(Screen):
     def toggle_controls(self):
         self.controls_visible = not self.controls_visible
 
+    def on_touch_down(self, touch):  # type: ignore[override]
+        """
+        Toggle overlays when tapping the video background.
+
+        We avoid placing a full-screen Button overlay (it can render unexpectedly on
+        some devices and can interfere with camera/video visibility).
+        """
+        try:
+            if not self.collide_point(*touch.pos):
+                return super().on_touch_down(touch)
+
+            # If the user is interacting with UI overlays, do not toggle.
+            for wid in ("top_bar", "controls_overlay", "chat_overlay", "local_preview"):
+                w = self.ids.get(wid)
+                if w is not None and w.collide_point(*touch.pos):
+                    return super().on_touch_down(touch)
+
+            # Background tap: toggle controls.
+            self.toggle_controls()
+            return True
+        except Exception:
+            return super().on_touch_down(touch)
+
     def _start_chat_polling(self):
         self._stop_chat_polling()
         self._chat_ticker = Clock.schedule_interval(self._poll_chat, 2.0)

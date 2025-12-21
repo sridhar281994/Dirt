@@ -24,7 +24,7 @@ from kivy.clock import Clock
 from kivy.logger import Logger
 from kivy.utils import platform
 
-from frontend_app.utils.storage import get_user
+from frontend_app.utils.storage import get_user, should_auto_login
 import traceback
 
 class WelcomeScreen(Screen):
@@ -62,7 +62,8 @@ class ChatApp(App):
             self.sm.add_widget(VideoScreen(name="video"))
             self.sm.add_widget(UserMatchScreen(name="user_match"))
 
-            self.sm.current = "welcome"
+            # If user opted into "Keep me logged in", skip to Choose.
+            self.sm.current = "choose" if should_auto_login() else "welcome"
 
             # Root layout to hold ScreenManager and overlay Timer
             root = FloatLayout()
@@ -124,6 +125,14 @@ class ChatApp(App):
             return
 
         try:
+            # Remove the SDL2/presplash as early as possible.
+            try:
+                from android import remove_presplash  # type: ignore
+
+                Clock.schedule_once(lambda _dt: remove_presplash(), 0)
+            except Exception:
+                pass
+
             from android.permissions import Permission, request_permissions  # type: ignore
 
             perms = [Permission.CAMERA, Permission.RECORD_AUDIO]
