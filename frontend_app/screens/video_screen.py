@@ -66,13 +66,13 @@ class VideoScreen(Screen):
         if sid > 0:
             self._ensure_android_av_permissions()
         else:
-            self._stop_camera()
+            # Keep local preview active even if call is not connected yet.
+            # (User wants to see their own video while searching / after ending.)
+            self._ensure_android_av_permissions()
 
     def _start_camera(self):
         """Start the local camera preview."""
-        # Only start if session is active and permission is granted.
-        if int(self.session_id or 0) <= 0:
-            return
+        # Start whenever we're on the video screen and permission is granted.
         if platform == "android" and not bool(self.camera_permission_granted):
             return
 
@@ -343,6 +343,34 @@ class VideoScreen(Screen):
 
         if self.manager:
             self.manager.current = "choose"
+
+    def end_call(self) -> None:
+        """
+        End/disconnect the current call WITHOUT leaving the video screen.
+        """
+        self._stop_timer()
+
+        # Clear session + remote UI state (keep local preview running).
+        self.session_id = 0
+        self.channel = ""
+        self.agora_app_id = ""
+        self.match_name = ""
+        self.match_username = ""
+        self.match_country = ""
+        self.match_desc = "Call ended"
+        self.match_image_url = ""
+        self.match_is_online = False
+        self.match_user_id = 0
+        self.duration_seconds = 0
+        self.remaining_seconds = 0
+
+        def end_call_bg():
+            try:
+                api_video_end()
+            except Exception:
+                pass
+
+        Thread(target=end_call_bg, daemon=True).start()
 
     def toggle_mute(self) -> None:
         """
