@@ -60,23 +60,30 @@ class AndroidSafeCamera(Camera):
                     self.index = 0
             except Exception:
                 Logger.exception("AndroidSafeCamera: could not set index=0")
-        else:
-            # Disconnect camera to release service.
-            try:
-                super().on_play(_instance, value)
-            except Exception:
-                pass
-            try:
-                self.index = -1
-            except Exception:
-                pass
 
-        try:
-            return super().on_play(_instance, value)
-        except Exception:
-            Logger.exception("AndroidSafeCamera: failed toggling play=%s", value)
             try:
-                self.index = -1
+                return super().on_play(_instance, value)
             except Exception:
-                pass
-            return None
+                Logger.exception("AndroidSafeCamera: failed starting play=%s", value)
+                # Reset to a safe disconnected state.
+                try:
+                    self.index = -1
+                except Exception:
+                    pass
+                try:
+                    self.play = False
+                except Exception:
+                    pass
+                return None
+
+        # playing == False: stop first, then disconnect the underlying camera service.
+        ret = None
+        try:
+            ret = super().on_play(_instance, value)
+        except Exception:
+            pass
+        try:
+            self.index = -1
+        except Exception:
+            pass
+        return ret

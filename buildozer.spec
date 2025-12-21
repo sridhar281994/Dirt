@@ -1,7 +1,7 @@
 [app]
 
 # (str) Title of your application
-title = frends-Chat
+title = Buddymeet
 
 # (str) Package name
 package.name = frendschat

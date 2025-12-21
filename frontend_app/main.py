@@ -32,7 +32,7 @@ class WelcomeScreen(Screen):
 
 class ChatApp(App):
     def build(self):
-        self.title = "frends-Chat"
+        self.title = "Buddymeet"
         app_dir = os.path.dirname(__file__)
         self.icon = os.path.join(app_dir, "assets", "icon.png")
         try:
