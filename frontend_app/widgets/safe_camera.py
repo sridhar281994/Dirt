@@ -23,7 +23,12 @@ class AndroidSafeCamera(Camera):
     def __init__(self, **kwargs):
         # Ensure we don't initialize the camera during KV apply.
         if "index" not in kwargs:
-            kwargs["index"] = -1
+            # NOTE:
+            # Kivy's Camera.__init__ contains:
+            #   if self.index == -1: self.index = 0
+            # which eagerly initializes the camera service.
+            # Use any value < -1 to avoid that eager path during KV build.
+            kwargs["index"] = -2
         super().__init__(**kwargs)
 
     def on_index(self, _instance, value):  # type: ignore[override]
@@ -35,13 +40,20 @@ class AndroidSafeCamera(Camera):
             return
 
         # Normal behavior (may still fail, but we catch it to avoid app crash).
+        #
+        # Kivy's Camera does not implement `on_index`; it binds `index` to its
+        # private method `_on_index` (see kivy/uix/camera.py). Calling
+        # super().on_index(...) will raise AttributeError on many Kivy versions.
         try:
-            return super().on_index(_instance, value)
+            # Ensure underlying CoreCamera is (re)created.
+            if hasattr(self, "_on_index"):
+                self._on_index()  # type: ignore[attr-defined]
+            return None
         except Exception:
             Logger.exception("AndroidSafeCamera: failed to init camera (index=%s)", value)
             # Reset to "disconnected" state so app continues.
             try:
-                self.index = -1
+                self.index = -2
             except Exception:
                 pass
             return None
@@ -62,12 +74,18 @@ class AndroidSafeCamera(Camera):
                 Logger.exception("AndroidSafeCamera: could not set index=0")
 
             try:
+                # Make sure CoreCamera exists before starting.
+                try:
+                    if hasattr(self, "_on_index"):
+                        self._on_index()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
                 return super().on_play(_instance, value)
             except Exception:
                 Logger.exception("AndroidSafeCamera: failed starting play=%s", value)
                 # Reset to a safe disconnected state.
                 try:
-                    self.index = -1
+                    self.index = -2
                 except Exception:
                     pass
                 try:
@@ -83,7 +101,7 @@ class AndroidSafeCamera(Camera):
         except Exception:
             pass
         try:
-            self.index = -1
+            self.index = -2
         except Exception:
             pass
         return ret
