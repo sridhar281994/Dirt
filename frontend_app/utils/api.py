@@ -267,3 +267,21 @@ def api_report_user(*, reported_user_id: int | None = None, reason: str, details
     )
     _raise(r)
     return r.json()
+
+
+def api_update_profile(name: str | None = None, image_url: str | None = None) -> Dict[str, Any]:
+    payload = {}
+    if name is not None:
+        payload["name"] = name
+    if image_url is not None:
+        payload["image_url"] = image_url
+
+    r = requests.put(
+        f"{_base_url()}/api/auth/profile",
+        json=payload,
+        headers=_headers(auth=True),
+        timeout=20,
+        verify=False,
+    )
+    _raise(r)
+    return r.json()

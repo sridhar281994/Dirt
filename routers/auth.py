@@ -349,3 +349,49 @@ def forgot_password_reset(payload: ForgotPasswordResetIn, db: Session = Depends(
     db.commit()
     return {"ok": True, "message": "Password updated successfully."}
 
+
+class UpdateProfileIn(BaseModel):
+    name: Optional[str] = None
+    image_url: Optional[str] = None
+
+
+@router.put("/profile")
+def update_profile(
+    payload: UpdateProfileIn,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    changed = False
+    if payload.name is not None:
+        new_name = payload.name.strip()
+        if not new_name:
+            raise HTTPException(400, "Name cannot be empty.")
+        current_user.name = new_name
+        changed = True
+
+    if payload.image_url is not None:
+        new_url = payload.image_url.strip()
+        current_user.image_url = new_url
+        changed = True
+
+    if changed:
+        db.add(current_user)
+        db.commit()
+        db.refresh(current_user)
+
+    return {
+        "ok": True,
+        "user": {
+            "id": current_user.id,
+            "email": current_user.email,
+            "username": current_user.username,
+            "name": current_user.name,
+            "gender": current_user.gender,
+            "country": current_user.country,
+            "description": current_user.description or "",
+            "image_url": current_user.image_url or "",
+            "is_subscribed": bool(current_user.is_subscribed),
+            "last_active_at": current_user.last_active_at.isoformat() if current_user.last_active_at else None,
+        },
+    }
+
