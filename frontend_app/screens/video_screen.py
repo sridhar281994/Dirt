@@ -427,11 +427,24 @@ class VideoScreen(Screen):
             return
             
         try:
+            # Safer switch: Stop, change index, Start.
+            was_playing = camera.play
+            if was_playing:
+                camera.play = False
+            
             # Assuming 0 is back, 1 is front. Flip it.
-            # If current is 1, go to 0. Else go to 1.
             current = int(getattr(camera, "index", 0) or 0)
             new_index = 0 if current == 1 else 1
             camera.index = new_index
+            
+            if was_playing:
+                # Restart camera
+                def restart(*_):
+                    try:
+                        camera.play = True
+                    except Exception:
+                        pass
+                Clock.schedule_once(restart, 0.2)
         except Exception:
             Logger.exception("VideoScreen: failed to toggle camera")
 
