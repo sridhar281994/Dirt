@@ -527,6 +527,57 @@
                     background_color: (0.3, 0.8, 0.4, 1)
                     on_release: root.save_profile()
 
+                Label:
+                    text: "Options"
+                    size_hint_y: None
+                    height: dp(30)
+                    color: 1, 1, 1, 0.7
+
+                Button:
+                    text: "History"
+                    size_hint_y: None
+                    height: dp(44)
+                    background_color: (0.2, 0.5, 0.8, 1)
+                    on_release: root.go_history()
+
+                Button:
+                    text: "Change Password"
+                    size_hint_y: None
+                    height: dp(44)
+                    background_color: (0.2, 0.5, 0.8, 1)
+                    on_release: root.change_password()
+
+                Label:
+                    text: "Subscribe"
+                    size_hint_y: None
+                    height: dp(30)
+                    color: 1, 1, 1, 0.7
+                
+                GridLayout:
+                    cols: 2
+                    size_hint_y: None
+                    height: dp(100)
+                    spacing: dp(5)
+                    Button:
+                        text: "Text 1h"
+                        on_release: root.subscribe("text_hour")
+                    Button:
+                        text: "Text 10m"
+                        on_release: root.subscribe("text_10min")
+                    Button:
+                        text: "Video 1h"
+                        on_release: root.subscribe("video_hour")
+                    Button:
+                        text: "Video 10m"
+                        on_release: root.subscribe("video_10min")
+
+                Button:
+                    text: "Logout"
+                    size_hint_y: None
+                    height: dp(44)
+                    background_color: (0.8, 0.2, 0.2, 1)
+                    on_release: root.logout()
+
                 Button:
                     text: "Back"
                     size_hint_y: None
@@ -717,18 +768,12 @@
                 valign: "middle"
                 on_text: root.set_preference(self.text)
 
-            CustomSpinner:
-                id: settings_spinner
-                # Avoid unicode emoji glyphs (often render as tofu on Android).
-                text: "..."
-                values: ["Subscribe", "Edit Profile", "History", "Change Password", "Logout"]
-                option_cls: "WideSpinnerOption"
-                dropdown_width: dp(320)
-                font_size: sp(20)
+            Button:
+                text: "Profile"
                 size_hint_x: None
-                width: dp(50)
+                width: dp(70)
                 background_color: (0.2, 0.2, 0.2, 1)
-                on_text: root.on_settings_select(self.text)
+                on_release: root.manager.current = 'edit_profile'
 
         # Main Card Area
         BoxLayout:
@@ -1227,9 +1272,14 @@
                     on_release: root.toggle_mute()
 
                 Button:
-                    text: "Switch Cam"
+                    text: ""
                     background_color: (0.4, 0.4, 0.4, 1)
                     on_release: root.toggle_camera()
+                    Image:
+                        source: "atlas://data/images/defaulttheme/action_view_reload"
+                        size_hint: None, None
+                        size: dp(26), dp(26)
+                        center: self.parent.center
                 
                 Button:
                     text: "Next"
