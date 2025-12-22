@@ -126,6 +126,9 @@ class ChooseScreen(Screen):
             # User interface has separate buttons for plans. 
             # Maybe show a popup with plans?
             _popup("Info", "Select a plan from the bottom menu.")
+        elif text == "Edit Profile":
+            if self.manager:
+                self.manager.current = "edit_profile"
         elif text == "Change Password":
             if self.manager:
                 # Reuse the OTP-based flow, but make Back return here.

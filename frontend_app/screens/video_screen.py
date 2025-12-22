@@ -420,6 +420,21 @@ class VideoScreen(Screen):
         except Exception:
             Logger.exception("VideoScreen: failed to toggle microphone mute")
 
+    def toggle_camera(self) -> None:
+        """Switch between front and back camera."""
+        camera = self.ids.get("local_camera")
+        if not camera:
+            return
+            
+        try:
+            # Assuming 0 is back, 1 is front. Flip it.
+            # If current is 1, go to 0. Else go to 1.
+            current = int(getattr(camera, "index", 0) or 0)
+            new_index = 0 if current == 1 else 1
+            camera.index = new_index
+        except Exception:
+            Logger.exception("VideoScreen: failed to toggle camera")
+
     def _start_timer(self) -> None:
         self._stop_timer()
         self._ticker = Clock.schedule_interval(self._tick, 1.0)

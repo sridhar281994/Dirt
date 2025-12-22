@@ -174,11 +174,27 @@
                             size_hint: None, None
                             size: dp(40), dp(40)
                             pos_hint: {"right": 1, "center_y": 0.5}
-                            text: "🙈" if self.state == "down" else "👁"
+                            text: ""
                             background_normal: ""
                             background_down: ""
                             background_color: (0,0,0,0)
                             color: (0.2, 0.2, 0.2, 1)
+                            canvas:
+                                Color:
+                                    rgba: 0.2, 0.2, 0.2, 1
+                                Line:
+                                    width: 1.2
+                                    ellipse: (self.x + dp(5), self.y + dp(10), dp(30), dp(20))
+                                Color:
+                                    rgba: (0.2, 0.2, 0.2, 1) if self.state == 'down' else (0, 0, 0, 0)
+                                Ellipse:
+                                    pos: self.x + dp(15), self.y + dp(15)
+                                    size: dp(10), dp(10)
+                                Color:
+                                    rgba: (0.2, 0.2, 0.2, 1) if self.state == 'normal' else (0, 0, 0, 0)
+                                Line:
+                                    points: [self.x + dp(5), self.y + dp(10), self.x + dp(35), self.y + dp(30)]
+                                    width: 1.2
 
                     BoxLayout:
                         size_hint_y: None
@@ -384,9 +400,25 @@
                         size_hint: None, None
                         size: dp(40), dp(40)
                         pos_hint: {'right': 1, 'center_y': 0.5}
-                        text: "👁"
+                        text: ""
                         background_color: (0,0,0,0)
                         on_state: password_input.password = (self.state == 'normal')
+                        canvas:
+                            Color:
+                                rgba: 0.2, 0.2, 0.2, 1
+                            Line:
+                                width: 1.2
+                                ellipse: (self.x + dp(5), self.y + dp(10), dp(30), dp(20))
+                            Color:
+                                rgba: (0.2, 0.2, 0.2, 1) if self.state == 'normal' else (0, 0, 0, 0)
+                            Ellipse:
+                                pos: self.x + dp(15), self.y + dp(15)
+                                size: dp(10), dp(10)
+                            Color:
+                                rgba: (0.2, 0.2, 0.2, 1) if self.state == 'down' else (0, 0, 0, 0)
+                            Line:
+                                points: [self.x + dp(5), self.y + dp(10), self.x + dp(35), self.y + dp(30)]
+                                width: 1.2
 
                 RelativeLayout:
                     size_hint_y: None
@@ -400,9 +432,25 @@
                         size_hint: None, None
                         size: dp(40), dp(40)
                         pos_hint: {'right': 1, 'center_y': 0.5}
-                        text: "👁"
+                        text: ""
                         background_color: (0,0,0,0)
                         on_state: confirm_password_input.password = (self.state == 'normal')
+                        canvas:
+                            Color:
+                                rgba: 0.2, 0.2, 0.2, 1
+                            Line:
+                                width: 1.2
+                                ellipse: (self.x + dp(5), self.y + dp(10), dp(30), dp(20))
+                            Color:
+                                rgba: (0.2, 0.2, 0.2, 1) if self.state == 'normal' else (0, 0, 0, 0)
+                            Ellipse:
+                                pos: self.x + dp(15), self.y + dp(15)
+                                size: dp(10), dp(10)
+                            Color:
+                                rgba: (0.2, 0.2, 0.2, 1) if self.state == 'down' else (0, 0, 0, 0)
+                            Line:
+                                points: [self.x + dp(5), self.y + dp(10), self.x + dp(35), self.y + dp(30)]
+                                width: 1.2
 
                 Button:
                     text: "Save Password"
@@ -410,6 +458,74 @@
                     height: dp(48)
                     background_color: (0.3, 0.8, 0.4, 1)
                     on_release: root.save_new_password()
+
+                Button:
+                    text: "Back"
+                    size_hint_y: None
+                    height: dp(44)
+                    background_color: (0.7, 0.2, 0.2, 1)
+                    on_release: root.go_back()
+
+<EditProfileScreen>:
+    name: "edit_profile"
+    FloatLayout:
+        canvas.before:
+            Color:
+                rgba: 0.9, 0.45, 0.0, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+        ScrollView:
+            size_hint: 0.9, 0.8
+            pos_hint: {"center_x": 0.5, "center_y": 0.5}
+
+            BoxLayout:
+                orientation: "vertical"
+                size_hint_y: None
+                height: self.minimum_height
+                width: min(root.width * 0.9, dp(500))
+                spacing: dp(15)
+                padding: dp(20)
+                pos_hint: {"center_x": 0.5} if root.width > dp(500) else {}
+                canvas.before:
+                    Color:
+                        rgba: 0, 0, 0, 0.6
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [20]
+
+                Label:
+                    text: "Edit Profile"
+                    font_size: sp(24)
+                    size_hint_y: None
+                    height: dp(40)
+
+                TextInput:
+                    id: name_input
+                    text: root.current_name
+                    hint_text: "Full Name"
+                    size_hint_y: None
+                    height: dp(48)
+                    font_size: sp(16)
+                    multiline: False
+
+                TextInput:
+                    id: image_url_input
+                    text: root.current_image_url
+                    hint_text: "Profile Image URL"
+                    size_hint_y: None
+                    height: dp(48)
+                    font_size: sp(16)
+                    multiline: False
+
+                Button:
+                    text: "Save Changes"
+                    size_hint_y: None
+                    height: dp(48)
+                    background_color: (0.3, 0.8, 0.4, 1)
+                    on_release: root.save_profile()
 
                 Button:
                     text: "Back"
@@ -500,9 +616,25 @@
                         size_hint: None, None
                         size: dp(40), dp(40)
                         pos_hint: {'right': 1, 'center_y': 0.5}
-                        text: "👁"
+                        text: ""
                         background_color: (0,0,0,0)
                         on_state: password_input.password = (self.state == 'normal')
+                        canvas:
+                            Color:
+                                rgba: 0.2, 0.2, 0.2, 1
+                            Line:
+                                width: 1.2
+                                ellipse: (self.x + dp(5), self.y + dp(10), dp(30), dp(20))
+                            Color:
+                                rgba: (0.2, 0.2, 0.2, 1) if self.state == 'normal' else (0, 0, 0, 0)
+                            Ellipse:
+                                pos: self.x + dp(15), self.y + dp(15)
+                                size: dp(10), dp(10)
+                            Color:
+                                rgba: (0.2, 0.2, 0.2, 1) if self.state == 'down' else (0, 0, 0, 0)
+                            Line:
+                                points: [self.x + dp(5), self.y + dp(10), self.x + dp(35), self.y + dp(30)]
+                                width: 1.2
 
                 Button:
                     text: "Register"
@@ -589,7 +721,7 @@
                 id: settings_spinner
                 # Avoid unicode emoji glyphs (often render as tofu on Android).
                 text: "..."
-                values: ["Subscribe", "History", "Change Password", "Logout"]
+                values: ["Subscribe", "Edit Profile", "History", "Change Password", "Logout"]
                 option_cls: "WideSpinnerOption"
                 dropdown_width: dp(320)
                 font_size: sp(20)
@@ -630,12 +762,18 @@
                         text_size: self.size
                         halign: "left"
                         valign: "middle"
-                    Label:
-                        text: "●"
+                    Widget:
                         size_hint_x: None
                         width: dp(20)
-                        font_size: sp(18)
-                        color: (0.1, 0.9, 0.2, 1) if root.current_is_online else (0.6, 0.6, 0.6, 1)
+                        size_hint_y: None
+                        height: dp(20)
+                        pos_hint: {'center_y': 0.5}
+                        canvas:
+                            Color:
+                                rgba: (0.1, 0.9, 0.2, 1) if root.current_is_online else (0.9, 0.1, 0.1, 1)
+                            Ellipse:
+                                pos: self.x + dp(5), self.y + dp(5)
+                                size: dp(10), dp(10)
                     Label:
                         text: root.current_country or ""
                         size_hint_x: None
@@ -1087,6 +1225,11 @@
                     text: ("Unmute" if root.is_muted else "Mute")
                     background_color: (0.3, 0.3, 0.3, 1)
                     on_release: root.toggle_mute()
+
+                Button:
+                    text: "Switch Cam"
+                    background_color: (0.4, 0.4, 0.4, 1)
+                    on_release: root.toggle_camera()
                 
                 Button:
                     text: "Next"
