@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from kivy.clock import Clock
 from kivy.logger import Logger
 from kivy.uix.camera import Camera
 
@@ -30,6 +31,11 @@ class AndroidSafeCamera(Camera):
             # Use any value < -1 to avoid that eager path during KV build.
             kwargs["index"] = -2
         super().__init__(**kwargs)
+        # Track failures to avoid infinite fallback loops.
+        self._failed_indices: set[int] = set()
+        self._retry_counts: dict[int, int] = {}
+        self._last_working_index: int | None = None
+        self._switch_scheduled = False
 
     def on_index(self, _instance, value):  # type: ignore[override]
         # Guard: ignore negative indexes (means "do not connect").
@@ -48,14 +54,61 @@ class AndroidSafeCamera(Camera):
             # Ensure underlying CoreCamera is (re)created.
             if hasattr(self, "_on_index"):
                 self._on_index()  # type: ignore[attr-defined]
+            try:
+                self._last_working_index = int(value)
+            except Exception:
+                self._last_working_index = None
             return None
         except Exception:
             Logger.exception("AndroidSafeCamera: failed to init camera (index=%s)", value)
-            # Reset to "disconnected" state so app continues.
+
+            # If an index fails (e.g., index=1 on a single-camera device), try a safe fallback.
             try:
-                self.index = -2
+                failed = int(value)
             except Exception:
-                pass
+                failed = -999999
+            self._failed_indices.add(failed)
+
+            # Heuristic recovery:
+            # - If non-zero index failed, fall back to 0.
+            # - If 0 failed, retry once (some backends return an initial None frame).
+            def _switch_to(target: int) -> None:
+                # Avoid re-entrant index sets inside property dispatch; schedule on next frame.
+                if self._switch_scheduled:
+                    return
+                self._switch_scheduled = True
+
+                def _do(_dt):
+                    self._switch_scheduled = False
+                    try:
+                        self.index = target
+                    except Exception:
+                        # Give up: disconnected state.
+                        try:
+                            self.index = -2
+                        except Exception:
+                            pass
+
+                Clock.schedule_once(_do, 0)
+
+            if failed >= 1 and 0 not in self._failed_indices:
+                Logger.warning("AndroidSafeCamera: falling back to index=0 (failed index=%s)", failed)
+                _switch_to(0)
+            else:
+                # Retry index 0 once if it failed, then give up cleanly.
+                if failed == 0:
+                    c = int(self._retry_counts.get(0, 0))
+                    if c < 1:
+                        self._retry_counts[0] = c + 1
+                        Logger.warning("AndroidSafeCamera: retrying index=0 once after failure")
+                        _switch_to(0)
+                        return None
+
+                # Reset to "disconnected" state so app continues.
+                try:
+                    self.index = -2
+                except Exception:
+                    pass
             return None
 
     def on_play(self, _instance, value):  # type: ignore[override]
@@ -69,7 +122,8 @@ class AndroidSafeCamera(Camera):
             # Defer actual camera connection until play=True.
             try:
                 if int(getattr(self, "index", -1) or -1) < 0:
-                    self.index = 0
+                    # Prefer last working index if we have one; otherwise default to 0.
+                    self.index = int(self._last_working_index if self._last_working_index is not None else 0)
             except Exception:
                 Logger.exception("AndroidSafeCamera: could not set index=0")
 
