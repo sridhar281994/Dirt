@@ -1169,6 +1169,24 @@
                 size_hint: 1, 1
                 pos_hint: {"center_x": 0.5, "center_y": 0.5}
 
+            # Loading "GIF" (animated spinner) shown until connected to an online match.
+            Scatter:
+                id: loading_spinner
+                size_hint: None, None
+                size: dp(70), dp(70)
+                pos_hint: {"center_x": 0.5, "center_y": 0.55}
+                do_translation: False
+                do_scale: False
+                do_rotation: False
+                rotation: 0
+                opacity: 1 if root.show_loading else 0
+                disabled: not root.show_loading
+                Image:
+                    source: "atlas://data/images/defaulttheme/spinner"
+                    size_hint: None, None
+                    size: self.parent.size
+                    pos: 0, 0
+
             # "Connecting..." overlay when no match
             Label:
                 text: (root.match_desc or "Searching for match...") if not root.match_username else ""
@@ -1411,12 +1429,20 @@
                 do_rotation: False
                 rotation: root.local_preview_rotation
                 center: self.parent.center
+                canvas.before:
+                    PushMatrix
+                    Scale:
+                        x: root.local_preview_scale_x
+                        y: 1
+                        origin: self.center
+                canvas.after:
+                    PopMatrix
 
                 AndroidSafeCamera:
                     id: local_camera
                     resolution: (640, 480)
                     # Keep local preview visible while searching/after ending.
-                    play: root.camera_permission_granted
+                    play: root.camera_permission_granted and root.camera_should_play
                     fit_mode: "cover"
                     size_hint: None, None
                     size: local_preview_scatter.size

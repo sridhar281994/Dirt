@@ -85,10 +85,65 @@ class EditProfileScreen(Screen):
         """
         Open a file picker and upload the selected image.
         """
+        def _open_kivy_picker():
+            # Cross-platform fallback (works even when Plyer backend is unavailable).
+            try:
+                import os
+                from kivy.uix.boxlayout import BoxLayout
+                from kivy.uix.button import Button
+                from kivy.uix.filechooser import FileChooserIconView
+
+                start_path = os.path.expanduser("~")
+                if platform == "android":
+                    # Common shared storage root on many devices.
+                    start_path = "/sdcard"
+
+                chooser = FileChooserIconView(
+                    path=start_path,
+                    filters=["*.png", "*.jpg", "*.jpeg", "*.webp"],
+                    multiselect=False,
+                )
+
+                btns = BoxLayout(size_hint_y=None, height=44, spacing=10, padding=10)
+                cancel = Button(text="Cancel")
+                choose = Button(text="Choose")
+                btns.add_widget(cancel)
+                btns.add_widget(choose)
+
+                layout = BoxLayout(orientation="vertical")
+                layout.add_widget(chooser)
+                layout.add_widget(btns)
+
+                popup = Popup(title="Select Image", content=layout, size_hint=(0.95, 0.9))
+
+                def _do_cancel(*_):
+                    try:
+                        popup.dismiss()
+                    except Exception:
+                        pass
+
+                def _do_choose(*_):
+                    sel = chooser.selection or []
+                    if not sel:
+                        return
+                    try:
+                        popup.dismiss()
+                    except Exception:
+                        pass
+                    path = str(sel[0])
+                    self.selected_image_path = path
+                    self.upload_selected_image()
+
+                cancel.bind(on_release=_do_cancel)
+                choose.bind(on_release=_do_choose)
+                popup.open()
+            except Exception as exc:
+                self._popup("Error", f"Failed to open file picker: {exc}")
+
         try:
             from plyer import filechooser  # type: ignore
         except Exception:
-            self._popup("Error", "File picker not available on this device.")
+            _open_kivy_picker()
             return
 
         def _chosen(selection):
@@ -100,9 +155,10 @@ class EditProfileScreen(Screen):
             self.upload_selected_image()
 
         try:
+            # Plyer filechooser may exist but be unimplemented on some targets.
             filechooser.open_file(on_selection=_chosen)
-        except Exception as exc:
-            self._popup("Error", f"Failed to open file picker: {exc}")
+        except Exception:
+            _open_kivy_picker()
 
     def upload_selected_image(self) -> None:
         path = (self.selected_image_path or "").strip()
