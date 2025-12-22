@@ -83,15 +83,79 @@ class VideoScreen(Screen):
         """
         Update preview rotation/mirroring based on active camera.
 
-        Android front/back cameras frequently report different sensor rotations.
-        Empirically, many devices need:
-        - back camera: -90
-        - front camera: +90 (i.e., -90 + 180) and mirrored.
+        On Android, different devices expose different sensor orientations for
+        the front camera (commonly 90° or 270°). Hardcoding "+90 for front"
+        will make the selfie preview upside down on devices where the correct
+        compensation matches the back camera (-90).
+
+        Instead, compute the required preview rotation from Android's camera
+        metadata (CameraInfo.orientation) and the current display rotation.
         """
         if platform == "android":
-            is_front = int(self.active_camera_index or 0) == 1
-            self.local_preview_rotation = 90 if is_front else -90
-            self.local_preview_scale_x = -1 if is_front else 1
+            # Keep "index==1 means front" as a fallback, but prefer querying
+            # the actual camera facing/orientation from Android.
+            is_front_guess = int(self.active_camera_index or 0) == 1
+
+            def _normalize_kivy_rotation_from_android_clockwise(deg_clockwise: int) -> int:
+                """
+                Android's setDisplayOrientation expects degrees clockwise.
+                Kivy's Scatter rotation is counter-clockwise.
+                Return a small (-180..180) counter-clockwise degree value.
+                """
+                try:
+                    d = int(deg_clockwise) % 360
+                except Exception:
+                    d = 0
+                rot = (-d) % 360
+                if rot > 180:
+                    rot -= 360
+                return int(rot)
+
+            try:
+                from jnius import autoclass  # type: ignore
+
+                PythonActivity = autoclass("org.kivy.android.PythonActivity")
+                Surface = autoclass("android.view.Surface")
+                Camera = autoclass("android.hardware.Camera")
+                CameraInfo = autoclass("android.hardware.Camera$CameraInfo")
+
+                # Display rotation -> degrees (clockwise).
+                display = PythonActivity.mActivity.getWindowManager().getDefaultDisplay()
+                r = int(display.getRotation())
+                if r == int(Surface.ROTATION_90):
+                    degrees = 90
+                elif r == int(Surface.ROTATION_180):
+                    degrees = 180
+                elif r == int(Surface.ROTATION_270):
+                    degrees = 270
+                else:
+                    degrees = 0
+
+                # Camera metadata.
+                idx = int(self.active_camera_index or 0)
+                info = CameraInfo()
+                Camera.getCameraInfo(idx, info)
+
+                # Determine facing from metadata if possible.
+                try:
+                    is_front = int(info.facing) == int(CameraInfo.CAMERA_FACING_FRONT)
+                except Exception:
+                    is_front = bool(is_front_guess)
+
+                # Android preview orientation formula (Camera API docs).
+                if is_front:
+                    result = (int(info.orientation) + degrees) % 360
+                    result = (360 - result) % 360  # compensate the mirror
+                else:
+                    result = (int(info.orientation) - degrees + 360) % 360
+
+                self.local_preview_rotation = _normalize_kivy_rotation_from_android_clockwise(result)
+                self.local_preview_scale_x = -1 if is_front else 1
+            except Exception:
+                # Fallback heuristic if Pyjnius/Camera metadata isn't available.
+                is_front = bool(is_front_guess)
+                self.local_preview_rotation = -90
+                self.local_preview_scale_x = -1 if is_front else 1
         else:
             # Desktop/iOS: default to no rotation; mirror front camera if used.
             is_front = int(self.active_camera_index or 0) == 1
