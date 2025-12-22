@@ -174,7 +174,8 @@ def video_match(
     Random video matchmaking.
     - Paid users: respects preference (male|female|both).
     - Free users: forced to SAME gender.
-    Returns a ChatSession(mode='video') plus Agora App ID from env.
+    - Loop: excludes users matched in the last hour.
+    - Online: only matches users active in last 2 mins.
     """
     pref = _norm_gender(payload.preference)
     if pref not in {"male", "female", "both"}:
@@ -192,37 +193,51 @@ def video_match(
         # Paid: respect preference
         if pref in {"male", "female"}:
             desired_gender = pref
-        else:
-            desired_gender = None
     else:
         # Free: same gender only
         if me in {"male", "female"}:
             desired_gender = me
-        else:
-            # cross/unknown -> random
-            desired_gender = None
+        # If me is cross/unknown, desired_gender remains None -> matches anyone
 
-    q = db.query(User).filter(User.id != user.id, User.is_on_call == False)
-    if desired_gender:
-        q = q.filter(User.gender == desired_gender)
+    # --- Loop Logic: Get recent partners ---
+    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+    recent_sessions = (
+        db.query(ChatSession)
+        .filter(
+            ChatSession.created_at >= one_hour_ago,
+            ChatSession.mode == "video",
+            or_(ChatSession.user_a_id == user.id, ChatSession.user_b_id == user.id)
+        )
+        .all()
+    )
+    excluded_ids = set()
+    for s in recent_sessions:
+        excluded_ids.add(s.user_b_id if s.user_a_id == user.id else s.user_a_id)
     
-    other = q.order_by(func.random()).first()
+    # --- Query ---
+    online_threshold = datetime.utcnow() - timedelta(minutes=2)
     
-    # Fallback if no one found with desired gender (only for paid users seeking specific gender, or free users if none same gender)
-    if not other and user.is_subscribed and desired_gender:
-         # Try finding ANY valid user if preference not met? Or just fail?
-         # Usually better to fail or wait, but for MVP we might fallback to random.
-         # For now, let's keep it strict.
-         pass
-         
-    if not other:
-         # Try wider search if allowed? 
-         # For free users, must be same gender. If none, fail.
-         if not user.is_subscribed and desired_gender:
-              pass # Fail
-         elif not user.is_subscribed and not desired_gender:
-              # Fallback to anyone not on call
-              other = db.query(User).filter(User.id != user.id, User.is_on_call == False).order_by(func.random()).first()
+    def get_candidate(exclude_ids=None):
+        q = db.query(User).filter(
+            User.id != user.id,
+            User.is_on_call == False,
+            User.last_active_at >= online_threshold
+        )
+        if desired_gender:
+            q = q.filter(User.gender == desired_gender)
+        if exclude_ids:
+            q = q.filter(~User.id.in_(exclude_ids))
+        return q.order_by(func.random()).first()
+
+    # 1. Try with exclusions (Loop)
+    other = get_candidate(exclude_ids=excluded_ids)
+
+    # 2. If not found and we had exclusions, Reset Loop (try without exclusions)
+    if not other and excluded_ids:
+        other = get_candidate(exclude_ids=None)
+
+    # 3. Fallback for free users (if they have no gender set, they match anyone - handled by desired_gender=None)
+    # If still no other, fail.
 
     if not other:
         # cleanup own status if failed
