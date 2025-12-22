@@ -27,6 +27,7 @@ else:
 
     from apscheduler.schedulers.background import BackgroundScheduler
     from fastapi import FastAPI
+    from fastapi.staticfiles import StaticFiles
     from sqlalchemy.orm import Session
 
     from database import Base, SessionLocal, engine
@@ -41,6 +42,14 @@ else:
 
     # Create tables (simple projects; for production use migrations).
     Base.metadata.create_all(bind=engine)
+
+    # Serve uploaded files (profile images, etc.)
+    upload_root = os.getenv("UPLOAD_DIR", "uploads")
+    try:
+        os.makedirs(upload_root, exist_ok=True)
+    except Exception:
+        pass
+    app.mount("/static", StaticFiles(directory=upload_root), name="static")
 
     # Lightweight SQLite schema patching for local dev (Render uses Postgres + scripts/db_update.sql).
     def _sqlite_ensure_columns() -> None:

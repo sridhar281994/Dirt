@@ -33,6 +33,9 @@ class VideoScreen(Screen):
     camera_permission_granted = BooleanProperty(False)
     audio_permission_granted = BooleanProperty(False)
     is_muted = BooleanProperty(False)
+    # Kivy's Android camera texture is often rotated 90deg vs portrait UI.
+    # We compensate in KV by rotating the preview container.
+    local_preview_rotation = NumericProperty(0)
     
     _ticker = None
     _chat_ticker = None
@@ -44,6 +47,7 @@ class VideoScreen(Screen):
 
     def on_enter(self, *args):
         """Ensure permissions and start camera when entering the screen."""
+        self._init_local_preview_transform()
         self._ensure_android_av_permissions()
         self.controls_visible = True
         self._start_chat_polling()
@@ -52,6 +56,19 @@ class VideoScreen(Screen):
         """Stop camera when leaving the screen."""
         self._stop_camera()
         self._stop_chat_polling()
+
+    def _init_local_preview_transform(self) -> None:
+        """
+        Initialize any platform-specific preview transforms.
+
+        On many Android devices, the camera preview arrives in landscape
+        orientation and needs a 90° correction to match a portrait UI.
+        """
+        if platform == "android":
+            # User reports preview is rotated left; rotate it right to compensate.
+            self.local_preview_rotation = -90
+        else:
+            self.local_preview_rotation = 0
 
     def on_session_id(self, _instance, value):  # type: ignore[override]
         """
@@ -96,7 +113,8 @@ class VideoScreen(Screen):
                 pass
             try:
                 if hasattr(camera, "index"):
-                    camera.index = -1
+                    # AndroidSafeCamera uses <0 as "disconnected"; keep it consistent.
+                    camera.index = -2
             except Exception:
                 pass
 
@@ -425,6 +443,20 @@ class VideoScreen(Screen):
         camera = self.ids.get("local_camera")
         if not camera:
             return
+
+        # Give user feedback (quick spin animation on the flip icon).
+        try:
+            from kivy.animation import Animation
+
+            icon = self.ids.get("flip_icon")
+            if icon is not None:
+                try:
+                    icon.rotation = 0
+                except Exception:
+                    pass
+                Animation(rotation=360, duration=0.25).start(icon)
+        except Exception:
+            pass
             
         try:
             # Safer switch: Stop, change index, Start.

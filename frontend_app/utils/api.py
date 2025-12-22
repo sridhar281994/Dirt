@@ -285,3 +285,26 @@ def api_update_profile(name: str | None = None, image_url: str | None = None) ->
     )
     _raise(r)
     return r.json()
+
+
+def api_upload_profile_image(*, file_path: str) -> Dict[str, Any]:
+    """
+    Upload a profile image file as multipart/form-data.
+    Backend stores and returns updated user dict with image_url like /static/...
+    """
+    tok = get_token()
+    if not tok:
+        raise ApiError("Not authenticated")
+
+    url = f"{_base_url()}/api/auth/profile/image"
+    headers = {"authorization": f"Bearer {tok}"}
+
+    try:
+        with open(file_path, "rb") as f:
+            files = {"file": (os.path.basename(file_path), f, "application/octet-stream")}
+            r = requests.post(url, headers=headers, files=files, timeout=40, verify=False)
+    except FileNotFoundError:
+        raise ApiError("Selected file not found.")
+
+    _raise(r)
+    return r.json()

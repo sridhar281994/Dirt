@@ -86,6 +86,7 @@ class ChooseScreen(Screen):
     my_name = StringProperty("")
     my_country = StringProperty("")
     my_desc = StringProperty("")
+    my_image_url = StringProperty("")
     
     # Touch handling
     _touch_start_x = None
@@ -105,6 +106,11 @@ class ChooseScreen(Screen):
         self.my_name = str(u.get("name") or "User")
         self.my_country = str(u.get("country") or "")
         self.my_desc = str(u.get("description") or "")
+        raw_my_img = str(u.get("image_url") or "")
+        if raw_my_img.strip():
+            self.my_image_url = self._normalize_image_url(raw_my_img)
+        else:
+            self.my_image_url = self._fallback_avatar_url(self.my_name or "User")
         
         # Enforce gender preference for non-subscribed users
         if not bool(u.get("is_subscribed")):

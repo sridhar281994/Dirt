@@ -513,12 +513,12 @@
 
                 TextInput:
                     id: image_url_input
-                    text: root.current_image_url
-                    hint_text: "Profile Image URL"
+                    text: ""
+                    hint_text: ""
                     size_hint_y: None
-                    height: dp(48)
-                    font_size: sp(16)
-                    multiline: False
+                    height: 0
+                    opacity: 0
+                    disabled: True
 
                 Button:
                     text: "Save Changes"
@@ -526,6 +526,37 @@
                     height: dp(48)
                     background_color: (0.3, 0.8, 0.4, 1)
                     on_release: root.save_profile()
+
+                # Current profile photo preview + upload button
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(90)
+                    spacing: dp(10)
+
+                    AsyncImage:
+                        source: root.current_image_url if root.current_image_url else ""
+                        size_hint: None, None
+                        size: dp(80), dp(80)
+                        fit_mode: "cover"
+
+                    BoxLayout:
+                        orientation: "vertical"
+                        spacing: dp(6)
+                        Label:
+                            text: "Profile photo"
+                            size_hint_y: None
+                            height: dp(20)
+                            color: 1, 1, 1, 0.9
+                            halign: "left"
+                            valign: "middle"
+                            text_size: self.size
+
+                        Button:
+                            text: "Upload Image"
+                            size_hint_y: None
+                            height: dp(44)
+                            background_color: (0.2, 0.5, 0.9, 1)
+                            on_release: root.pick_image()
 
                 Label:
                     text: "Options"
@@ -739,6 +770,12 @@
                     pos: self.pos
                     size: self.size
 
+            AsyncImage:
+                source: root.my_image_url
+                size_hint: None, None
+                size: dp(46), dp(46)
+                fit_mode: "cover"
+
             Label:
                 markup: True
                 text: (root.my_name or "Loading...") + (("\n[size=12sp]" + root.my_desc + "[/size]") if root.my_desc else "")
@@ -842,9 +879,18 @@
                 RelativeLayout:
                     size_hint_y: 0.6
                     AsyncImage:
+                        id: choose_profile_image
                         source: root.current_image_url
                         fit_mode: "contain"
                         size_hint: 1, 1
+                    # Replace big loading image with bold three dots.
+                    Label:
+                        markup: True
+                        text: "[b]...[/b]"
+                        font_size: sp(34)
+                        color: 1, 1, 1, 0.85
+                        pos_hint: {"center_x": 0.5, "center_y": 0.5}
+                        opacity: 1 if (choose_profile_image.source and not choose_profile_image.texture) else 0
 
                 BoxLayout:
                     size_hint_y: None
@@ -1266,20 +1312,67 @@
                     background_color: 0.8, 0.2, 0.2, 1
                     on_release: root.end_call()
 
+                # Mic mute toggle (mic / mic with strike).
+                # Uses canvas drawing so it works on Android without emoji fonts.
                 Button:
-                    text: ("Unmute" if root.is_muted else "Mute")
-                    background_color: (0.3, 0.3, 0.3, 1)
+                    size_hint_x: None
+                    width: dp(46)
+                    text: ""
+                    background_normal: ""
+                    background_down: ""
+                    background_color: 0, 0, 0, 0
                     on_release: root.toggle_mute()
+                    canvas.before:
+                        Color:
+                            rgba: (0.2, 0.2, 0.2, 0.9) if root.is_muted else (0.25, 0.25, 0.25, 0.8)
+                        RoundedRectangle:
+                            pos: self.pos
+                            size: self.size
+                            radius: [dp(10)]
+                    canvas.after:
+                        # Mic body (simple)
+                        Color:
+                            rgba: 1, 1, 1, 1
+                        Line:
+                            width: 1.4
+                            ellipse: (self.center_x - dp(7), self.center_y - dp(2), dp(14), dp(16))
+                        Line:
+                            width: 1.4
+                            points: [self.center_x, self.center_y - dp(2), self.center_x, self.center_y - dp(12)]
+                        Line:
+                            width: 1.4
+                            points: [self.center_x - dp(6), self.center_y - dp(12), self.center_x + dp(6), self.center_y - dp(12)]
+                        # Strike when muted
+                        Color:
+                            rgba: (1, 0.25, 0.25, 1) if root.is_muted else (0, 0, 0, 0)
+                        Line:
+                            width: 2.0
+                            points: [self.x + dp(12), self.y + dp(12), self.right - dp(12), self.top - dp(12)]
 
+                # Camera flip button (fixes "white square" by using a valid atlas key)
                 Button:
                     text: ""
+                    size_hint_x: None
+                    width: dp(46)
                     background_color: (0.4, 0.4, 0.4, 1)
                     on_release: root.toggle_camera()
-                    Image:
-                        source: "atlas://data/images/defaulttheme/action_view_reload"
+                    # Small rotating icon (looks like a "flip" animation)
+                    Scatter:
+                        id: flip_icon
                         size_hint: None, None
-                        size: dp(26), dp(26)
-                        center: self.parent.center
+                        size: dp(22), dp(22)
+                        pos: self.parent.center_x - self.width / 2.0, self.parent.center_y - self.height / 2.0
+                        do_translation: False
+                        do_scale: False
+                        do_rotation: False
+                        rotation: 0
+                        Image:
+                            # `action_view_reload` is not present in Kivy's defaulttheme.atlas
+                            # so it rendered as the missing-image (white square).
+                            source: "atlas://data/images/defaulttheme/spinner"
+                            size_hint: None, None
+                            size: self.parent.size
+                            pos: 0, 0
                 
                 Button:
                     text: "Next"
@@ -1307,12 +1400,27 @@
                     pos: self.pos
                     size: self.size
             
-            AndroidSafeCamera:
-                id: local_camera
-                resolution: (640, 480)
-                # Keep local preview visible while searching/after ending.
-                play: root.camera_permission_granted
-                fit_mode: "contain"
+            # Rotate preview on Android to match portrait UI.
+            Scatter:
+                id: local_preview_scatter
+                size_hint: None, None
+                size: self.parent.size
+                pos: 0, 0
+                do_translation: False
+                do_scale: False
+                do_rotation: False
+                rotation: root.local_preview_rotation
+                center: self.parent.center
+
+                AndroidSafeCamera:
+                    id: local_camera
+                    resolution: (640, 480)
+                    # Keep local preview visible while searching/after ending.
+                    play: root.camera_permission_granted
+                    fit_mode: "cover"
+                    size_hint: None, None
+                    size: local_preview_scatter.size
+                    pos: 0, 0
 
 <UserMatchScreen>:
     name: "user_match"
