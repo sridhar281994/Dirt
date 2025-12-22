@@ -879,9 +879,18 @@
                 RelativeLayout:
                     size_hint_y: 0.6
                     AsyncImage:
+                        id: choose_profile_image
                         source: root.current_image_url
                         fit_mode: "contain"
                         size_hint: 1, 1
+                    # Replace big loading image with bold three dots.
+                    Label:
+                        markup: True
+                        text: "[b]...[/b]"
+                        font_size: sp(34)
+                        color: 1, 1, 1, 0.85
+                        pos_hint: {"center_x": 0.5, "center_y": 0.5}
+                        opacity: 1 if (choose_profile_image.source and not choose_profile_image.texture) else 0
 
                 BoxLayout:
                     size_hint_y: None
