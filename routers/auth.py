@@ -3,10 +3,12 @@ from __future__ import annotations
 import os
 import re
 import secrets
+import time
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import jwt
 import bcrypt
@@ -395,3 +397,74 @@ def update_profile(
         },
     }
 
+
+@router.post("/profile/image")
+async def upload_profile_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload profile image and store its served path in DB.
+
+    Saves to: {UPLOAD_DIR}/profile/<user>_<ts>_<rand>.<ext>
+    Served at: /static/profile/<...>
+    """
+    # Basic validation
+    content_type = (file.content_type or "").lower().strip()
+    allowed = {
+        "image/jpeg": "jpg",
+        "image/jpg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+    }
+    if content_type not in allowed:
+        raise HTTPException(400, "Unsupported image type. Use JPG/PNG/WEBP.")
+
+    # Limit upload size (best-effort; FastAPI also allows server-side limits)
+    max_bytes = int(os.getenv("PROFILE_IMAGE_MAX_BYTES", str(5 * 1024 * 1024)))
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "Empty file.")
+    if len(data) > max_bytes:
+        raise HTTPException(400, f"Image too large (max {max_bytes} bytes).")
+
+    upload_root = Path(os.getenv("UPLOAD_DIR", "uploads"))
+    profile_dir = upload_root / "profile"
+    try:
+        profile_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    ext = allowed[content_type]
+    nonce = secrets.token_hex(4)
+    ts = int(time.time())
+    fname = f"user_{current_user.id}_{ts}_{nonce}.{ext}"
+    dst = profile_dir / fname
+
+    try:
+        dst.write_bytes(data)
+    except Exception:
+        raise HTTPException(500, "Failed to save uploaded image.")
+
+    # Store served path
+    current_user.image_url = f"/static/profile/{fname}"
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+
+    return {
+        "ok": True,
+        "user": {
+            "id": current_user.id,
+            "email": current_user.email,
+            "username": current_user.username,
+            "name": current_user.name,
+            "gender": current_user.gender,
+            "country": current_user.country,
+            "description": current_user.description or "",
+            "image_url": current_user.image_url or "",
+            "is_subscribed": bool(current_user.is_subscribed),
+            "last_active_at": current_user.last_active_at.isoformat() if current_user.last_active_at else None,
+        },
+    }

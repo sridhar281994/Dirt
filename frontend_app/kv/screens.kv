@@ -513,12 +513,12 @@
 
                 TextInput:
                     id: image_url_input
-                    text: root.current_image_url
-                    hint_text: "Profile Image URL"
+                    text: ""
+                    hint_text: ""
                     size_hint_y: None
-                    height: dp(48)
-                    font_size: sp(16)
-                    multiline: False
+                    height: 0
+                    opacity: 0
+                    disabled: True
 
                 Button:
                     text: "Save Changes"
@@ -526,6 +526,37 @@
                     height: dp(48)
                     background_color: (0.3, 0.8, 0.4, 1)
                     on_release: root.save_profile()
+
+                # Current profile photo preview + upload button
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(90)
+                    spacing: dp(10)
+
+                    AsyncImage:
+                        source: root.current_image_url if root.current_image_url else ""
+                        size_hint: None, None
+                        size: dp(80), dp(80)
+                        fit_mode: "cover"
+
+                    BoxLayout:
+                        orientation: "vertical"
+                        spacing: dp(6)
+                        Label:
+                            text: "Profile photo"
+                            size_hint_y: None
+                            height: dp(20)
+                            color: 1, 1, 1, 0.9
+                            halign: "left"
+                            valign: "middle"
+                            text_size: self.size
+
+                        Button:
+                            text: "Upload Image"
+                            size_hint_y: None
+                            height: dp(44)
+                            background_color: (0.2, 0.5, 0.9, 1)
+                            on_release: root.pick_image()
 
                 Label:
                     text: "Options"
@@ -738,6 +769,12 @@
                 Rectangle:
                     pos: self.pos
                     size: self.size
+
+            AsyncImage:
+                source: root.my_image_url
+                size_hint: None, None
+                size: dp(46), dp(46)
+                fit_mode: "cover"
 
             Label:
                 markup: True
