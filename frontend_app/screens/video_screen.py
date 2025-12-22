@@ -36,9 +36,20 @@ class VideoScreen(Screen):
     # Kivy's Android camera texture is often rotated 90deg vs portrait UI.
     # We compensate in KV by rotating the preview container.
     local_preview_rotation = NumericProperty(0)
+    # Mirror (selfie) preview on X axis: 1 (normal) / -1 (mirrored)
+    local_preview_scale_x = NumericProperty(1)
+
+    # Drive Camera.play via KV binding so we can safely pause during switches.
+    camera_should_play = BooleanProperty(True)
+    active_camera_index = NumericProperty(0)  # 0=back, 1=front
+
+    # Remote connection/loading state
+    is_remote_connected = BooleanProperty(False)
+    show_loading = BooleanProperty(False)
     
     _ticker = None
     _chat_ticker = None
+    _loading_spinner = None
     last_preference = StringProperty("both")
 
     def on_pre_enter(self, *args):
@@ -50,11 +61,13 @@ class VideoScreen(Screen):
         self._init_local_preview_transform()
         self._ensure_android_av_permissions()
         self.controls_visible = True
+        self._sync_remote_loading_state()
         self._start_chat_polling()
 
     def on_leave(self, *args):
         """Stop camera when leaving the screen."""
         self._stop_camera()
+        self._set_loading(False)
         self._stop_chat_polling()
 
     def _init_local_preview_transform(self) -> None:
@@ -64,11 +77,26 @@ class VideoScreen(Screen):
         On many Android devices, the camera preview arrives in landscape
         orientation and needs a 90° correction to match a portrait UI.
         """
+        self._update_local_preview_transform()
+
+    def _update_local_preview_transform(self) -> None:
+        """
+        Update preview rotation/mirroring based on active camera.
+
+        Android front/back cameras frequently report different sensor rotations.
+        Empirically, many devices need:
+        - back camera: -90
+        - front camera: +90 (i.e., -90 + 180) and mirrored.
+        """
         if platform == "android":
-            # User reports preview is rotated left; rotate it right to compensate.
-            self.local_preview_rotation = -90
+            is_front = int(self.active_camera_index or 0) == 1
+            self.local_preview_rotation = 90 if is_front else -90
+            self.local_preview_scale_x = -1 if is_front else 1
         else:
+            # Desktop/iOS: default to no rotation; mirror front camera if used.
+            is_front = int(self.active_camera_index or 0) == 1
             self.local_preview_rotation = 0
+            self.local_preview_scale_x = -1 if is_front else 1
 
     def on_session_id(self, _instance, value):  # type: ignore[override]
         """
@@ -98,8 +126,8 @@ class VideoScreen(Screen):
             try:
                 # Ensure index triggers only when we're ready (AndroidSafeCamera uses -1 as disconnected).
                 if hasattr(camera, "index") and int(getattr(camera, "index", -1) or -1) < 0:
-                    camera.index = 0
-                camera.play = True
+                    camera.index = int(self.active_camera_index or 0)
+                self.camera_should_play = True
             except Exception:
                 Logger.exception("Failed to start camera preview")
 
@@ -108,7 +136,7 @@ class VideoScreen(Screen):
         camera = self.ids.get("local_camera")
         if camera:
             try:
-                camera.play = False
+                self.camera_should_play = False
             except Exception:
                 pass
             try:
@@ -187,6 +215,9 @@ class VideoScreen(Screen):
         # Cancel any existing countdown
         self._stop_timer()
         self.last_preference = (preference or "both").strip().lower() or "both"
+        # Show loader while we match/connect.
+        self._set_loading(True)
+        self.is_remote_connected = False
 
         def work():
             try:
@@ -221,6 +252,8 @@ class VideoScreen(Screen):
                     self._start_timer()
                     # If permissions are already granted, start local preview immediately.
                     self._ensure_android_av_permissions()
+                    # Remote "connected" when we actually have an online match.
+                    self._sync_remote_loading_state()
 
                 Clock.schedule_once(apply, 0)
             except ApiError as exc:
@@ -239,6 +272,8 @@ class VideoScreen(Screen):
                     self.duration_seconds = 0
                     self.remaining_seconds = 0
                     self._stop_timer()
+                    self.is_remote_connected = False
+                    self._set_loading(False)
 
                 Clock.schedule_once(apply_err, 0)
 
@@ -373,6 +408,7 @@ class VideoScreen(Screen):
 
     def go_back(self):
         self._stop_timer()
+        self._set_loading(False)
         
         # End call in backend to clear busy status
         def end_call_bg():
@@ -404,6 +440,8 @@ class VideoScreen(Screen):
         self.match_user_id = 0
         self.duration_seconds = 0
         self.remaining_seconds = 0
+        self.is_remote_connected = False
+        self._set_loading(False)
 
         def end_call_bg():
             try:
@@ -459,26 +497,65 @@ class VideoScreen(Screen):
             pass
             
         try:
-            # Safer switch: Stop, change index, Start.
-            was_playing = camera.play
-            if was_playing:
-                camera.play = False
-            
-            # Assuming 0 is back, 1 is front. Flip it.
-            current = int(getattr(camera, "index", 0) or 0)
+            # Pause via bound property (avoids fighting KV bindings).
+            was_playing = bool(self.camera_should_play)
+            self.camera_should_play = False
+
+            # Flip using our own state (AndroidSafeCamera can set index to -2 while switching).
+            current = int(self.active_camera_index or 0)
             new_index = 0 if current == 1 else 1
-            camera.index = new_index
-            
+            self.active_camera_index = new_index
+            self._update_local_preview_transform()
+
+            camera.index = int(new_index)
+
             if was_playing:
-                # Restart camera
-                def restart(*_):
-                    try:
-                        camera.play = True
-                    except Exception:
-                        pass
-                Clock.schedule_once(restart, 0.2)
+                Clock.schedule_once(lambda *_: setattr(self, "camera_should_play", True), 0.25)
         except Exception:
             Logger.exception("VideoScreen: failed to toggle camera")
+            # Best-effort: resume preview if we paused it.
+            try:
+                self.camera_should_play = True
+            except Exception:
+                pass
+
+    def _sync_remote_loading_state(self) -> None:
+        """
+        Decide whether to show loader based on match/online state.
+        """
+        connected = bool(self.session_id > 0 and self.match_username and self.match_is_online)
+        self.is_remote_connected = connected
+        self._set_loading(not connected and bool(self.session_id > 0))
+
+    def _set_loading(self, should_show: bool) -> None:
+        should_show = bool(should_show)
+        self.show_loading = should_show
+        if should_show:
+            if self._loading_spinner is None:
+                self._loading_spinner = Clock.schedule_interval(self._spin_loading, 1 / 30.0)
+        else:
+            if self._loading_spinner is not None:
+                try:
+                    self._loading_spinner.cancel()
+                except Exception:
+                    pass
+                self._loading_spinner = None
+            # Reset rotation so it doesn't jump when shown again.
+            try:
+                spinner = self.ids.get("loading_spinner")
+                if spinner is not None:
+                    spinner.rotation = 0
+            except Exception:
+                pass
+
+    def _spin_loading(self, _dt):
+        try:
+            spinner = self.ids.get("loading_spinner")
+            if spinner is None:
+                return
+            spinner.rotation = (float(getattr(spinner, "rotation", 0.0)) + 10.0) % 360.0
+        except Exception:
+            pass
 
     def _start_timer(self) -> None:
         self._stop_timer()
