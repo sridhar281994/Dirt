@@ -96,89 +96,13 @@ class VideoScreen(Screen):
     def _update_local_preview_transform(self) -> None:
         """
         Update preview rotation/mirroring based on active camera.
-
-        On Android, different devices expose different sensor orientations for
-        the front camera (commonly 90° or 270°). Hardcoding "+90 for front"
-        will make the selfie preview upside down on devices where the correct
-        compensation matches the back camera (-90).
-
-        Instead, compute the required preview rotation from Android's camera
-        metadata (CameraInfo.orientation) and the current display rotation.
         """
-        if platform == "android":
-            # Keep "index==1 means front" as a fallback, but prefer querying
-            # the actual camera facing/orientation from Android.
-            is_front_guess = int(self.active_camera_index or 0) == 1
-
-            def _normalize_kivy_rotation_from_android_clockwise(deg_clockwise: int) -> int:
-                """
-                Android's setDisplayOrientation expects degrees clockwise.
-                Kivy's Scatter rotation is counter-clockwise.
-                Return a small (-180..180) counter-clockwise degree value.
-                """
-                try:
-                    d = int(deg_clockwise) % 360
-                except Exception:
-                    d = 0
-                rot = (-d) % 360
-                if rot > 180:
-                    rot -= 360
-                return int(rot)
-
-            try:
-                from jnius import autoclass  # type: ignore
-
-                PythonActivity = autoclass("org.kivy.android.PythonActivity")
-                Surface = autoclass("android.view.Surface")
-                Camera = autoclass("android.hardware.Camera")
-                CameraInfo = autoclass("android.hardware.Camera$CameraInfo")
-
-                # Display rotation -> degrees (clockwise).
-                display = PythonActivity.mActivity.getWindowManager().getDefaultDisplay()
-                r = int(display.getRotation())
-                if r == int(Surface.ROTATION_90):
-                    degrees = 90
-                elif r == int(Surface.ROTATION_180):
-                    degrees = 180
-                elif r == int(Surface.ROTATION_270):
-                    degrees = 270
-                else:
-                    degrees = 0
-
-                # Camera metadata.
-                idx = int(self.active_camera_index or 0)
-                info = CameraInfo()
-                Camera.getCameraInfo(idx, info)
-
-                # Determine facing from metadata if possible.
-                try:
-                    is_front = int(info.facing) == int(CameraInfo.CAMERA_FACING_FRONT)
-                except Exception:
-                    is_front = bool(is_front_guess)
-
-                # Android preview orientation formula (Camera API docs).
-                if is_front:
-                    result = (int(info.orientation) + degrees) % 360
-                    result = (360 - result) % 360  # compensate the mirror
-                else:
-                    result = (int(info.orientation) - degrees + 360) % 360
-
-                self.local_preview_rotation = _normalize_kivy_rotation_from_android_clockwise(result)
-                self.local_preview_scale_x = -1 if is_front else 1
-            except Exception:
-                # Fallback heuristic if Pyjnius/Camera metadata isn't available.
-                is_front = bool(is_front_guess)
-                self.local_preview_rotation = -90
-                self.local_preview_scale_x = -1 if is_front else 1
-        else:
-            # Desktop/iOS: default to no rotation; mirror front camera if used.
-            is_front = int(self.active_camera_index or 0) == 1
-            self.local_preview_rotation = 0
-            self.local_preview_scale_x = -1 if is_front else 1
-
-        # After computing a best-effort rotation, apply a quick runtime check
-        # once frames arrive (some devices report misleading metadata).
-        self._schedule_preview_portrait_autofix()
+        # User requested: "Camera must not rotate."
+        self.local_preview_rotation = 0
+        
+        # Keep mirroring for front camera (index 1)
+        is_front = int(self.active_camera_index or 0) == 1
+        self.local_preview_scale_x = -1 if is_front else 1
 
     def _cancel_camera_monitors(self) -> None:
         for ev_name in ("_camera_health_ev", "_preview_autofix_ev"):
@@ -362,48 +286,9 @@ class VideoScreen(Screen):
 
     def _schedule_preview_portrait_autofix(self) -> None:
         """
-        Enforce portrait preview for BOTH cameras.
-
-        We use runtime texture aspect as a fallback because Android camera
-        metadata can be inconsistent across OEMs, while the actual frame size
-        reliably tells us if the preview is landscape.
+        Disabled auto-fix as user requested "Camera must not rotate".
         """
-        if self._preview_autofix_ev is not None:
-            return
-
-        def _fix(_dt):
-            cam = self.ids.get("local_camera")
-            if cam is None:
-                self._preview_autofix_ev = None
-                return False
-            if not (bool(self.camera_permission_granted) and bool(self.camera_should_play)):
-                self._preview_autofix_ev = None
-                return False
-
-            try:
-                ts = getattr(cam, "texture_size", None) or (0, 0)
-                tw, th = int(ts[0] or 0), int(ts[1] or 0)
-            except Exception:
-                tw, th = 0, 0
-
-            if tw <= 0 or th <= 0:
-                # Wait until the first frame arrives.
-                return True
-
-            # If the camera frames are landscape but our UI is portrait, ensure we rotate by 90deg.
-            if tw > th:
-                # Preserve any existing +/-90 choice if already applied.
-                if int(self.local_preview_rotation or 0) not in (90, -90):
-                    self.local_preview_rotation = -90
-            else:
-                # Texture is already portrait; don't rotate.
-                self.local_preview_rotation = 0
-
-            self._preview_autofix_ev = None
-            return False
-
-        # Retry for a short period until frames exist.
-        self._preview_autofix_ev = Clock.schedule_interval(_fix, 0.25)
+        return
 
     def _refresh_android_permission_state(self) -> None:
         if platform != "android":
@@ -743,19 +628,7 @@ class VideoScreen(Screen):
         if not camera:
             return
 
-        # Give user feedback (quick spin animation on the flip icon).
-        try:
-            from kivy.animation import Animation
-
-            icon = self.ids.get("flip_icon")
-            if icon is not None:
-                try:
-                    icon.rotation = 0
-                except Exception:
-                    pass
-                Animation(rotation=360, duration=0.25).start(icon)
-        except Exception:
-            pass
+        # No animation as requested.
             
         try:
             # Pause via bound property (avoids fighting KV bindings).
