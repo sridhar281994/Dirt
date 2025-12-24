@@ -1250,6 +1250,7 @@
             opacity: 1 if root.controls_visible else 0
             disabled: not root.controls_visible
             do_scroll_x: False
+            bar_width: dp(6)
             
             GridLayout:
                 id: chat_box
@@ -1482,6 +1483,48 @@
                     size_hint: None, None
                     size: (local_preview_scatter.height, local_preview_scatter.width) if root.local_preview_swap_wh else local_preview_scatter.size
                     center: local_preview_scatter.center
+
+        # Self camera PiP overlay (bottom-right) using the same camera texture.
+        # This avoids opening the camera twice and helps when the full preview is black.
+        BoxLayout:
+            id: self_pip
+            size_hint: None, None
+            size: dp(120), dp(160)
+            pos_hint: {"right": 0.98, "y": 0.08}
+            canvas.before:
+                Color:
+                    rgba: 0, 0, 0, 0.85
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [dp(10)]
+
+            Scatter:
+                id: self_pip_scatter
+                size_hint: None, None
+                size: self.parent.size
+                pos: self.parent.pos
+                do_translation: False
+                do_scale: False
+                do_rotation: False
+                rotation: root.local_preview_rotation
+                center: self.parent.center
+                canvas.before:
+                    PushMatrix
+                    Scale:
+                        x: root.local_preview_scale_x
+                        y: root.local_preview_scale_y
+                        origin: self.center
+                canvas.after:
+                    PopMatrix
+
+                Image:
+                    texture: local_camera.texture
+                    allow_stretch: True
+                    keep_ratio: False
+                    size_hint: None, None
+                    size: (self_pip_scatter.height, self_pip_scatter.width) if root.local_preview_swap_wh else self_pip_scatter.size
+                    center: self_pip_scatter.center
 
 
         # Loading spinner

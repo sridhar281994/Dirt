@@ -10,7 +10,8 @@ from kivy.uix.screenmanager import Screen
 from kivy.utils import platform
 
 from frontend_app.utils.android_camera import get_android_camera_ids
-from frontend_app.utils.api import ApiError, api_get_public_messages, api_post_public_message, api_video_match
+from frontend_app.utils.api import ApiError, api_get_messages, api_post_message, api_video_match
+from frontend_app.utils.storage import get_user
 
 
 class StartVideoDateScreen(Screen):
@@ -41,6 +42,9 @@ class StartVideoDateScreen(Screen):
 
     # Public chat overlay (small, last 5 messages).
     _chat_ticker = None
+    # Active session chat (1:1) once matched.
+    session_id = NumericProperty(0)
+    match_user_id = NumericProperty(0)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -104,6 +108,8 @@ class StartVideoDateScreen(Screen):
         self._cancel_retry()
         self._stop_camera()
         self._stop_chat_polling()
+        # Reset ephemeral in-call state for next entry.
+        self._reset_session_chat()
 
     def _refresh_android_permission_state(self) -> None:
         if platform != "android":
@@ -239,12 +245,19 @@ class StartVideoDateScreen(Screen):
                 data = api_video_match(preference=self.preference)
                 match = data.get("match") or {}
                 has_match = match.get("is_online")
+                sess = data.get("session") or {}
+                new_sid = int(sess.get("id") or 0)
+                new_match_user_id = int(match.get("id") or 0)
 
                 def apply():
                     self._inflight = False
                     if not has_match:
                         self._schedule_retry()
                         return
+                    # Update local session-chat context before switching screens
+                    # (best-effort; if user stays on this screen for any reason,
+                    # chat becomes 1:1 instead of global).
+                    self._set_session_chat(session_id=new_sid, match_user_id=new_match_user_id)
                     self.manager.get_screen("video").apply_match_payload(data)
                     self.manager.current = "video"
 
@@ -256,7 +269,7 @@ class StartVideoDateScreen(Screen):
 
     def _start_chat_polling(self) -> None:
         self._stop_chat_polling()
-        # Poll public chat lightly; keep UI responsive.
+        # Poll 1:1 session chat lightly; keep UI responsive.
         self._chat_ticker = Clock.schedule_interval(self._poll_chat, 3.0)
         self._poll_chat(0)
 
@@ -269,9 +282,15 @@ class StartVideoDateScreen(Screen):
             self._chat_ticker = None
 
     def _poll_chat(self, _dt) -> None:
+        sid = int(self.session_id or 0)
+        if sid <= 0:
+            # Not connected yet: keep overlay empty.
+            Clock.schedule_once(lambda *_: self._clear_chat_overlay(), 0)
+            return
+
         def work():
             try:
-                data = api_get_public_messages(limit=30)
+                data = api_get_messages(session_id=sid)
                 msgs = data.get("messages") or []
                 msgs = list(msgs)[-5:]  # show only last five
 
@@ -287,10 +306,21 @@ class StartVideoDateScreen(Screen):
 
                     from kivy.uix.label import Label
 
+                    me = get_user() or {}
+                    try:
+                        my_id = int(me.get("id") or 0)
+                    except Exception:
+                        my_id = 0
+
                     for m in msgs:
-                        sender = str(m.get("sender_name") or "Unknown")
                         text = str(m.get("message") or "")
-                        msg_text = f"[b]{sender}[/b]: {text}"
+                        sender_name = str(m.get("sender_name") or m.get("sender") or "")
+                        try:
+                            sender_id = int(m.get("sender_id") or 0)
+                        except Exception:
+                            sender_id = 0
+                        who = "Me" if (my_id and sender_id == my_id) else (sender_name or "Partner")
+                        msg_text = f"[b]{who}[/b]: {text}"
 
                         lbl = Label(
                             text=msg_text,
@@ -326,6 +356,9 @@ class StartVideoDateScreen(Screen):
         Thread(target=work, daemon=True).start()
 
     def send_message(self) -> None:
+        sid = int(self.session_id or 0)
+        if sid <= 0:
+            return
         inp = self.ids.get("chat_input")
         if not inp:
             return
@@ -337,7 +370,7 @@ class StartVideoDateScreen(Screen):
 
         def work():
             try:
-                api_post_public_message(message=msg)
+                api_post_message(session_id=sid, message=msg)
                 Clock.schedule_once(lambda *_: self._poll_chat(0), 0)
             except ApiError:
                 pass
@@ -349,5 +382,49 @@ class StartVideoDateScreen(Screen):
         self._cancel_retry()
         self._stop_camera()
         self._stop_chat_polling()
+        self._reset_session_chat()
         if self.manager:
             self.manager.current = "choose"
+
+    def _clear_chat_overlay(self) -> None:
+        """
+        Clear visible chat messages overlay (ephemeral UI).
+        Backend history remains accessible from "Chat History".
+        """
+        box = self.ids.get("chat_box")
+        if box:
+            try:
+                box.clear_widgets()
+            except Exception:
+                pass
+        scroll = self.ids.get("chat_overlay")
+        if scroll:
+            try:
+                scroll.scroll_y = 0
+            except Exception:
+                pass
+
+    def _reset_session_chat(self) -> None:
+        self.session_id = 0
+        self.match_user_id = 0
+        self._clear_chat_overlay()
+
+    def _set_session_chat(self, *, session_id: int, match_user_id: int) -> None:
+        """
+        Set the active 1:1 chat context.
+        If a new match arrives, clear the overlay (UI only).
+        """
+        try:
+            session_id = int(session_id or 0)
+        except Exception:
+            session_id = 0
+        try:
+            match_user_id = int(match_user_id or 0)
+        except Exception:
+            match_user_id = 0
+
+        changed = (int(self.session_id or 0) != session_id) or (int(self.match_user_id or 0) != match_user_id)
+        self.session_id = session_id
+        self.match_user_id = match_user_id
+        if changed:
+            self._clear_chat_overlay()
