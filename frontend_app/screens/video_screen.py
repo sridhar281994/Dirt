@@ -630,9 +630,10 @@ class VideoScreen(Screen):
         self._set_loading(False)
         
         # End call in backend to clear busy status
+        sid = int(self.session_id or 0)
         def end_call_bg():
             try:
-                api_video_end()
+                api_video_end(session_id=sid)
             except Exception:
                 pass
         Thread(target=end_call_bg, daemon=True).start()
@@ -645,6 +646,7 @@ class VideoScreen(Screen):
         End/disconnect the current call WITHOUT leaving the video screen.
         """
         self._stop_timer()
+        sid = int(self.session_id or 0)
 
         # Clear session + remote UI state (keep local preview running).
         self.session_id = 0
@@ -665,7 +667,7 @@ class VideoScreen(Screen):
 
         def end_call_bg():
             try:
-                api_video_end()
+                api_video_end(session_id=sid)
             except Exception:
                 pass
 
