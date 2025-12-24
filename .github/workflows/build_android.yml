@@ -27,11 +27,17 @@ jobs:
 
       - name: Download Apache Ant
         run: |
-          wget https://archive.apache.org/dist/ant/binaries/apache-ant-1.9.4-bin.tar.gz
-          tar -xzf apache-ant-1.9.4-bin.tar.gz
-          rm apache-ant-1.9.4-bin.tar.gz
-          # Patch buildozer.spec to use the local ant
-          sed -i 's|#android.ant_path =|android.ant_path = apache-ant-1.9.4|' buildozer.spec
+          ANT_VERSION="1.9.4"
+          ANT_TGZ="$RUNNER_TEMP/apache-ant-${ANT_VERSION}-bin.tar.gz"
+          ANT_DIR="$RUNNER_TEMP/apache-ant-${ANT_VERSION}"
+
+          wget -O "$ANT_TGZ" "https://archive.apache.org/dist/ant/binaries/apache-ant-${ANT_VERSION}-bin.tar.gz"
+          tar -xzf "$ANT_TGZ" -C "$RUNNER_TEMP"
+          rm "$ANT_TGZ"
+
+          # Patch buildozer.spec to use the local ant.
+          # Keep Ant outside the repo workspace so it won't get copied into the APK sources.
+          sed -i "s|#android.ant_path =|android.ant_path = ${ANT_DIR}|" buildozer.spec
 
       - name: Build with Buildozer
         uses: ArtemSBulgakov/buildozer-action@v1
