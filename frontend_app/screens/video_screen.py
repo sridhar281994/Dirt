@@ -5,6 +5,7 @@ import urllib.parse
 from threading import Thread
 
 from kivy.clock import Clock
+from kivy.metrics import dp
 from kivy.properties import BooleanProperty, NumericProperty, StringProperty
 from kivy.uix.screenmanager import Screen
 from kivy.utils import platform
@@ -428,17 +429,19 @@ class VideoScreen(Screen):
                         lbl = Label(
                             text=msg_text,
                             size_hint_y=None,
-                            height=30,
+                            height=dp(24),
+                            size_hint_x=1,
                             halign="left",
                             valign="middle",
+                            # Wrap to allocated label width; don't bind width to texture_size
+                            # (doing so can cause infinite relayout loops).
                             text_size=(box.width, None),
                             color=(1, 1, 1, 1)
                         )
-                        lbl.bind(texture_size=lbl.setter('size'))
-                        # Force height update
-                        def resize(instance, value):
-                            instance.height = value[1]
-                        lbl.bind(texture_size=resize)
+                        # Keep wrapping width in sync with layout allocation.
+                        lbl.bind(width=lambda inst, w: setattr(inst, "text_size", (w, None)))
+                        # Only adjust height based on texture; never set width from texture_size.
+                        lbl.bind(texture_size=lambda inst, s: setattr(inst, "height", s[1] + dp(6)))
                         
                         box.add_widget(lbl)
                         
