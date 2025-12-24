@@ -25,6 +25,14 @@ jobs:
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
+      - name: Download Apache Ant
+        run: |
+          wget https://archive.apache.org/dist/ant/binaries/apache-ant-1.9.4-bin.tar.gz
+          tar -xzf apache-ant-1.9.4-bin.tar.gz
+          rm apache-ant-1.9.4-bin.tar.gz
+          # Patch buildozer.spec to use the local ant
+          sed -i 's|#android.ant_path =|android.ant_path = apache-ant-1.9.4|' buildozer.spec
+
       - name: Build with Buildozer
         uses: ArtemSBulgakov/buildozer-action@v1
         id: buildozer
