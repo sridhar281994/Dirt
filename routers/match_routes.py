@@ -32,6 +32,11 @@ class VideoMatchIn(BaseModel):
     preference: str = "both"  # male|female|both
 
 
+class VideoEndIn(BaseModel):
+    # Optional: if provided, clear BOTH participants' busy status.
+    session_id: int | None = None
+
+
 class MessageIn(BaseModel):
     session_id: int
     message: str
@@ -286,9 +291,37 @@ def video_match(
 
 @router.post("/video/end")
 def end_video_call(
+    payload: VideoEndIn,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # If the client knows the session_id, we can safely clear BOTH users'
+    # busy flags (prevents "stuck on call" users when skipping/ending).
+    try:
+        sid = int(payload.session_id or 0)
+    except Exception:
+        sid = 0
+
+    if sid > 0:
+        sess = (
+            db.query(ChatSession)
+            .filter(
+                ChatSession.id == sid,
+                ChatSession.mode == "video",
+                or_(ChatSession.user_a_id == user.id, ChatSession.user_b_id == user.id),
+            )
+            .first()
+        )
+        if sess:
+            for uid in (sess.user_a_id, sess.user_b_id):
+                u = db.query(User).filter(User.id == uid).first()
+                if u:
+                    u.is_on_call = False
+                    db.add(u)
+            db.commit()
+            return {"ok": True}
+
+    # Fallback (backwards compatible): clear only the current user.
     user.is_on_call = False
     db.add(user)
     db.commit()

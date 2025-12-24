@@ -205,10 +205,19 @@ def api_video_match(*, preference: str = "both") -> Dict[str, Any]:
     return r.json()
 
 
-def api_video_end() -> Dict[str, Any]:
+def api_video_end(*, session_id: int | None = None) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {}
+    if session_id is not None:
+        try:
+            sid = int(session_id)
+        except Exception:
+            sid = 0
+        if sid > 0:
+            payload["session_id"] = sid
+
     r = requests.post(
         f"{_base_url()}/api/video/end",
-        json={},
+        json=payload,
         headers=_headers(auth=True),
         timeout=20,
         verify=False,

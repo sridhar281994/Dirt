@@ -1624,10 +1624,11 @@
         ####################################################################
         BoxLayout:
             size_hint: 1, None
-            height: dp(60)
+            height: dp(104)
             pos_hint: {"y": 0}
             padding: dp(10)
-            spacing: dp(10)
+            spacing: dp(8)
+            orientation: "vertical"
 
             canvas.before:
                 Color:
@@ -1636,20 +1637,43 @@
                     pos: self.pos
                     size: self.size
 
-            Button:
-                text: "Retry"
-                size_hint_x: 0.27
-                on_release: root.retry()
+            BoxLayout:
+                size_hint_y: None
+                height: dp(40)
+                spacing: dp(10)
 
-            Button:
-                text: "Front-cam" if root.is_front_camera else "Back-cam"
-                size_hint_x: 0.34
-                on_release: root.toggle_camera()
+                Button:
+                    text: "Retry"
+                    size_hint_x: 0.33
+                    on_release: root.retry()
 
-            Button:
-                text: "Cancel"
-                size_hint_x: 0.27
-                on_release: root.go_back()
+                Button:
+                    text: "Next"
+                    size_hint_x: 0.33
+                    on_release: root.next_call()
+
+                Button:
+                    text: "End"
+                    background_color: 0.8, 0.2, 0.2, 1
+                    opacity: 1 if root.session_id > 0 else 0
+                    disabled: root.session_id <= 0
+                    size_hint_x: 0.34 if root.session_id > 0 else 0.0001
+                    on_release: root.end_call()
+
+            BoxLayout:
+                size_hint_y: None
+                height: dp(40)
+                spacing: dp(10)
+
+                Button:
+                    text: "Front-cam" if root.is_front_camera else "Back-cam"
+                    size_hint_x: 0.6
+                    on_release: root.toggle_camera()
+
+                Button:
+                    text: "Cancel"
+                    size_hint_x: 0.4
+                    on_release: root.go_back()
 
 
 <UserMatchScreen>:

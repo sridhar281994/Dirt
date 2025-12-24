@@ -10,7 +10,7 @@ from kivy.uix.screenmanager import Screen
 from kivy.utils import platform
 
 from frontend_app.utils.android_camera import get_android_camera_ids
-from frontend_app.utils.api import ApiError, api_get_messages, api_post_message, api_video_match
+from frontend_app.utils.api import ApiError, api_get_messages, api_post_message, api_video_end, api_video_match
 from frontend_app.utils.storage import get_user
 
 
@@ -21,6 +21,7 @@ class StartVideoDateScreen(Screen):
     _spin_ev = None
     _retry_ev = None
     _inflight = BooleanProperty(False)
+    _pending_next = BooleanProperty(False)
 
     camera_permission_granted = BooleanProperty(False)
     audio_permission_granted = BooleanProperty(False)
@@ -248,8 +249,25 @@ class StartVideoDateScreen(Screen):
 
                 def apply():
                     self._inflight = False
+                    # If user pressed NEXT while this request was inflight, discard this match
+                    # (but clean up backend busy flags) and immediately request another.
+                    if self._pending_next:
+                        self._pending_next = False
+                        if new_sid > 0:
+                            self._end_backend_video_call(session_id=new_sid)
+                        self.status_text = "Searching for next online user..."
+                        self.show_loading = True
+                        self._start_spinner()
+                        Clock.schedule_once(lambda *_: self._request_match_once(), 0)
+                        return
+
                     if not has_match:
-                        self._schedule_retry()
+                        if self._pending_next:
+                            # NEXT requested: retry immediately.
+                            self._pending_next = False
+                            Clock.schedule_once(lambda *_: self._request_match_once(), 0)
+                        else:
+                            self._schedule_retry()
                         return
                     # Update local session-chat context before switching screens
                     # (best-effort; if user stays on this screen for any reason,
@@ -260,9 +278,66 @@ class StartVideoDateScreen(Screen):
 
                 Clock.schedule_once(lambda *_: apply(), 0)
             except ApiError:
-                Clock.schedule_once(lambda *_: self._schedule_retry(3.0), 0)
+                def apply_err():
+                    self._inflight = False
+                    # If NEXT was requested while inflight, try again quickly.
+                    if self._pending_next:
+                        self._pending_next = False
+                        Clock.schedule_once(lambda *_: self._request_match_once(), 0)
+                        return
+                    self._schedule_retry(3.0)
+
+                Clock.schedule_once(lambda *_: apply_err(), 0)
 
         Thread(target=work, daemon=True).start()
+
+    def _end_backend_video_call(self, *, session_id: int | None = None) -> None:
+        def work():
+            try:
+                api_video_end(session_id=session_id)
+            except Exception:
+                pass
+
+        Thread(target=work, daemon=True).start()
+
+    def next_call(self) -> None:
+        """
+        Skip to the next available online user.
+        """
+        # If a match request is currently inflight, mark NEXT and let the response
+        # clean up and re-request safely (avoids concurrent /video/match calls).
+        if self._inflight:
+            self._pending_next = True
+            self.status_text = "Searching for next online user..."
+            self.show_loading = True
+            self._start_spinner()
+            self._cancel_retry()
+            return
+
+        # End any current session (if present), then request a new match.
+        sid = int(self.session_id or 0)
+        if sid > 0:
+            self._end_backend_video_call(session_id=sid)
+        self._reset_session_chat()
+
+        self.status_text = "Searching for next online user..."
+        self.show_loading = True
+        self._start_spinner()
+        self._cancel_retry()
+        self._request_match_once()
+
+    def end_call(self) -> None:
+        """
+        End/disconnect the current call (only meaningful if someone is connected).
+        """
+        sid = int(self.session_id or 0)
+        self._cancel_retry()
+        self._stop_spinner()
+        if sid > 0:
+            self._end_backend_video_call(session_id=sid)
+        self._reset_session_chat()
+        self.show_loading = False
+        self.status_text = "Call ended"
 
     def _start_chat_polling(self) -> None:
         self._stop_chat_polling()
