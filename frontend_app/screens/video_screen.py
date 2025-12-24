@@ -13,6 +13,7 @@ from kivy.logger import Logger
 
 from frontend_app.utils.api import ApiError, api_video_match, api_video_end, api_get_messages, api_post_message
 from frontend_app.utils.android_camera import get_android_camera_ids
+from frontend_app.utils.storage import get_user
 
 
 class VideoScreen(Screen):
@@ -208,6 +209,10 @@ class VideoScreen(Screen):
             # Keep local preview active even if call is not connected yet.
             # (User wants to see their own video while searching / after ending.)
             self._ensure_android_av_permissions()
+        # Session changed: clear the 1:1 chat overlay (UI only).
+        self._clear_chat_overlay()
+        # Trigger an immediate refresh for the new session (if any).
+        Clock.schedule_once(lambda *_: self._poll_chat(0), 0.05)
 
     def _start_camera(self):
         """Start the local camera preview."""
@@ -434,6 +439,15 @@ class VideoScreen(Screen):
         match = payload.get("match") or {}
         duration = int(payload.get("duration_seconds") or 40)
 
+        # If we are switching to a new session/match, clear chat overlay immediately.
+        old_sid = int(self.session_id or 0)
+        try:
+            new_sid = int(sess.get("id") or 0)
+        except Exception:
+            new_sid = 0
+        if old_sid != new_sid:
+            self._clear_chat_overlay()
+
         self.session_id = int(sess.get("id") or 0)
         self.channel = str(payload.get("channel") or "")
         self.agora_app_id = str(payload.get("agora_app_id") or "")
@@ -517,12 +531,14 @@ class VideoScreen(Screen):
 
     def _poll_chat(self, _dt):
         if self.session_id <= 0:
+            self._clear_chat_overlay()
             return
         
         def work():
             try:
                 data = api_get_messages(session_id=self.session_id)
                 msgs = data.get("messages") or []
+                msgs = list(msgs)[-5:]  # show only last five
                 
                 def update_ui(*_):
                     box = self.ids.get("chat_box")
@@ -533,16 +549,29 @@ class VideoScreen(Screen):
                     # For a robust app, we'd diff. For now, clear/redraw is fine for small chats.
                     # But clear_widgets is expensive.
                     # Let's just clear and redraw for now to ensure correctness.
-                    box.clear_widgets()
+                    try:
+                        box.clear_widgets()
+                    except Exception:
+                        return
                     
                     from kivy.uix.label import Label
+                    me = get_user() or {}
+                    try:
+                        my_id = int(me.get("id") or 0)
+                    except Exception:
+                        my_id = 0
                     for m in msgs:
-                        # sender = "Me" if int(m.get('sender_id') or 0) == ... else "Partner"
-                        # We don't have easy access to my user ID here without get_user()
-                        # But we can just show message content.
-                        msg_text = str(m.get("message") or "")
+                        txt = str(m.get("message") or "")
+                        sender_name = str(m.get("sender_name") or m.get("sender") or "")
+                        try:
+                            sender_id = int(m.get("sender_id") or 0)
+                        except Exception:
+                            sender_id = 0
+                        who = "Me" if (my_id and sender_id == my_id) else (sender_name or "Partner")
+                        msg_text = f"[b]{who}[/b]: {txt}"
                         lbl = Label(
                             text=msg_text,
+                            markup=True,
                             size_hint_y=None,
                             height=dp(24),
                             size_hint_x=1,
@@ -559,6 +588,14 @@ class VideoScreen(Screen):
                         lbl.bind(texture_size=lambda inst, s: setattr(inst, "height", s[1] + dp(6)))
                         
                         box.add_widget(lbl)
+
+                    # Scroll to bottom (latest) in overlay.
+                    scroll = self.ids.get("chat_overlay")
+                    if scroll:
+                        try:
+                            scroll.scroll_y = 0
+                        except Exception:
+                            pass
                         
                 Clock.schedule_once(update_ui, 0)
             except Exception:
@@ -624,6 +661,7 @@ class VideoScreen(Screen):
         self.remaining_seconds = 0
         self.is_remote_connected = False
         self._set_loading(False)
+        self._clear_chat_overlay()
 
         def end_call_bg():
             try:
@@ -688,6 +726,24 @@ class VideoScreen(Screen):
             # Best-effort: resume preview if we paused it.
             try:
                 self.camera_should_play = True
+            except Exception:
+                pass
+
+    def _clear_chat_overlay(self) -> None:
+        """
+        Clear visible chat messages overlay (ephemeral UI).
+        Backend history remains accessible from "Chat History".
+        """
+        box = self.ids.get("chat_box")
+        if box is not None:
+            try:
+                box.clear_widgets()
+            except Exception:
+                pass
+        scroll = self.ids.get("chat_overlay")
+        if scroll is not None:
+            try:
+                scroll.scroll_y = 0
             except Exception:
                 pass
 
