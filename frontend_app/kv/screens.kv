@@ -1432,7 +1432,6 @@
                     size: local_preview_scatter.size
                     pos: 0, 0
 
-#Kvlayout: 
 <StartVideoDateScreen>:
     name: "start_video_date"
     FloatLayout:
@@ -1490,7 +1489,7 @@
             id: self_pip
             size_hint: None, None
             size: dp(120), dp(160)
-            pos_hint: {"right": 0.98, "y": 0.08}
+            pos_hint: {"right": 0.98, "y": 0}  # moved to very bottom
             canvas.before:
                 Color:
                     rgba: 0, 0, 0, 0.85
@@ -1525,7 +1524,6 @@
                     size_hint: None, None
                     size: (self_pip_scatter.height, self_pip_scatter.width) if root.local_preview_swap_wh else self_pip_scatter.size
                     center: self_pip_scatter.center
-
 
         # Loading spinner
         Scatter:
@@ -1712,7 +1710,6 @@
                 size_hint_x: 0.27
                 background_color: (0.8, 0.2, 0.2, 1)
                 on_release: root.go_back()
-
 
 <UserMatchScreen>:
     name: "user_match"
