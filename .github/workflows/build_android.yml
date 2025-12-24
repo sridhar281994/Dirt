@@ -39,6 +39,16 @@ jobs:
           # Keep Ant outside the repo workspace so it won't get copied into the APK sources.
           sed -i "s|#android.ant_path =|android.ant_path = ${ANT_DIR}|" buildozer.spec
 
+      - name: Cache Buildozer + Gradle downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            .buildozer_global
+            .gradle
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-buildozer-
+
       - name: Build with Buildozer
         uses: ArtemSBulgakov/buildozer-action@v1
         id: buildozer
@@ -49,7 +59,27 @@ jobs:
           # buildozer-action installs buildozer via `pip --user`, which places the
           # binary in $HOME/.local/bin (not always on PATH for the container shell).
           # Pipe "yes" to avoid interactive Android SDK license prompts from sdkmanager.
-          command: export PATH="$HOME/.local/bin:$PATH" && yes | buildozer android debug
+          command: |
+            export PATH="$HOME/.local/bin:$PATH"
+            # Persist Gradle wrapper/caches inside the workspace so they can be cached between runs.
+            export GRADLE_USER_HOME="$PWD/.gradle"
+
+            # Gradle wrapper downloads sometimes fail transiently in CI (e.g. GitHub 504).
+            # Retry a few times before failing the workflow.
+            for attempt in 1 2 3; do
+              echo "Buildozer attempt ${attempt}/3"
+              if yes | buildozer android debug; then
+                break
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                sleep_seconds=$((attempt * 45))
+                echo "Build failed; retrying in ${sleep_seconds}s..."
+                sleep "${sleep_seconds}"
+              else
+                echo "Build failed after 3 attempts."
+                exit 1
+              fi
+            done
           buildozer_version: master
 
       - name: Upload APK
