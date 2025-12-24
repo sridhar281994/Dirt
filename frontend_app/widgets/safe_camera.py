@@ -72,7 +72,7 @@ class AndroidSafeCamera(Camera):
             # Heuristic recovery:
             # - If non-zero index failed, fall back to 0.
             # - If 0 failed, retry once (some backends return an initial None frame).
-            def _switch_to(target: int) -> None:
+            def _switch_to(target: int, *, delay: float = 0.35) -> None:
                 # Avoid re-entrant index sets inside property dispatch; schedule on next frame.
                 if self._switch_scheduled:
                     return
@@ -89,11 +89,11 @@ class AndroidSafeCamera(Camera):
                         except Exception:
                             pass
 
-                Clock.schedule_once(_do, 0)
+                Clock.schedule_once(_do, float(delay or 0))
 
             if failed >= 1 and 0 not in self._failed_indices:
                 Logger.warning("AndroidSafeCamera: falling back to index=0 (failed index=%s)", failed)
-                _switch_to(0)
+                _switch_to(0, delay=0.35)
             else:
                 # Retry index 0 once if it failed, then give up cleanly.
                 if failed == 0:
@@ -101,7 +101,7 @@ class AndroidSafeCamera(Camera):
                     if c < 1:
                         self._retry_counts[0] = c + 1
                         Logger.warning("AndroidSafeCamera: retrying index=0 once after failure")
-                        _switch_to(0)
+                        _switch_to(0, delay=0.6)
                         return None
 
                 # Reset to "disconnected" state so app continues.

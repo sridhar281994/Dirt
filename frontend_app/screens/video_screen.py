@@ -52,6 +52,18 @@ class VideoScreen(Screen):
     _chat_ticker = None
     _loading_spinner = None
     last_preference = StringProperty("both")
+    _camera_health_ev = None
+    _preview_autofix_ev = None
+    _camera_start_focus_retries = 0
+    _camera_health_retries = 0
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Best-effort safety nets for flaky Android camera startups.
+        self._camera_health_ev = None
+        self._preview_autofix_ev = None
+        self._camera_start_focus_retries = 0
+        self._camera_health_retries = 0
 
     def on_pre_enter(self, *args):
         # Refresh permission flags whenever screen is about to show.
@@ -68,6 +80,7 @@ class VideoScreen(Screen):
     def on_leave(self, *args):
         """Stop camera when leaving the screen."""
         self._stop_camera()
+        self._cancel_camera_monitors()
         self._set_loading(False)
         self._stop_chat_polling()
 
@@ -163,6 +176,74 @@ class VideoScreen(Screen):
             self.local_preview_rotation = 0
             self.local_preview_scale_x = -1 if is_front else 1
 
+        # After computing a best-effort rotation, apply a quick runtime check
+        # once frames arrive (some devices report misleading metadata).
+        self._schedule_preview_portrait_autofix()
+
+    def _cancel_camera_monitors(self) -> None:
+        for ev_name in ("_camera_health_ev", "_preview_autofix_ev"):
+            ev = getattr(self, ev_name, None)
+            if ev is not None:
+                try:
+                    ev.cancel()
+                except Exception:
+                    pass
+                setattr(self, ev_name, None)
+
+    def _android_has_window_focus(self) -> bool:
+        if platform != "android":
+            return True
+        try:
+            from jnius import autoclass  # type: ignore
+
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            act = PythonActivity.mActivity
+            return bool(act is not None and act.hasWindowFocus())
+        except Exception:
+            # If we can't check focus, assume OK (don't block camera entirely).
+            return True
+
+    def _start_camera_when_ready(self) -> None:
+        """
+        Start camera only when the Activity has focus.
+
+        Some Android OEM ROMs (seen with Oppo/OnePlus in logs) will throw
+        `Camera Error 2` if we open the legacy Camera API while the window
+        focus is transitioning (e.g. right after a runtime permission dialog).
+        """
+        if platform == "android" and not bool(self.camera_permission_granted):
+            return
+
+        if platform == "android" and not self._android_has_window_focus():
+            # Wait for focus to return; try a few times then proceed anyway.
+            if int(self._camera_start_focus_retries or 0) < 12:
+                self._camera_start_focus_retries += 1
+                Clock.schedule_once(lambda *_: self._start_camera_when_ready(), 0.25)
+                return
+            # Give up on focus gating; attempt start.
+
+        self._camera_start_focus_retries = 0
+
+        camera = self.ids.get("local_camera")
+        if not camera:
+            return
+
+        try:
+            # Ensure index is set to something valid BEFORE play flips to True.
+            if hasattr(camera, "index") and int(getattr(camera, "index", -1) or -1) < 0:
+                camera.index = int(self.active_camera_index or 0)
+        except Exception:
+            Logger.exception("VideoScreen: failed setting camera index")
+
+        try:
+            self.camera_should_play = True
+        except Exception:
+            pass
+
+        # Add a lightweight healthcheck: if we don't get frames soon, retry once/twice.
+        self._schedule_camera_healthcheck()
+        self._schedule_preview_portrait_autofix()
+
     def on_session_id(self, _instance, value):  # type: ignore[override]
         """
         Start/stop local preview when session becomes active.
@@ -182,19 +263,7 @@ class VideoScreen(Screen):
 
     def _start_camera(self):
         """Start the local camera preview."""
-        # Start whenever we're on the video screen and permission is granted.
-        if platform == "android" and not bool(self.camera_permission_granted):
-            return
-
-        camera = self.ids.get("local_camera")
-        if camera:
-            try:
-                # Ensure index triggers only when we're ready (AndroidSafeCamera uses -1 as disconnected).
-                if hasattr(camera, "index") and int(getattr(camera, "index", -1) or -1) < 0:
-                    camera.index = int(self.active_camera_index or 0)
-                self.camera_should_play = True
-            except Exception:
-                Logger.exception("Failed to start camera preview")
+        self._start_camera_when_ready()
 
     def _stop_camera(self):
         """Stop the local camera preview."""
@@ -210,6 +279,131 @@ class VideoScreen(Screen):
                     camera.index = -2
             except Exception:
                 pass
+        self._camera_health_retries = 0
+
+    def _schedule_camera_healthcheck(self) -> None:
+        if self._camera_health_ev is not None:
+            return
+
+        def _check(_dt):
+            # Stop checking if we left the screen or preview is stopped.
+            if not self.get_parent_window():
+                self._camera_health_ev = None
+                return False
+            if not (bool(self.camera_permission_granted) and bool(self.camera_should_play)):
+                self._camera_health_ev = None
+                return False
+
+            cam = self.ids.get("local_camera")
+            if cam is None:
+                self._camera_health_ev = None
+                return False
+
+            # Kivy Camera exposes texture/texture_size; if frames never arrive,
+            # texture stays None or size stays 0.
+            tex = getattr(cam, "texture", None)
+            tex_size = None
+            try:
+                tex_size = getattr(cam, "texture_size", None)
+            except Exception:
+                tex_size = None
+
+            has_frame = bool(tex is not None)
+            try:
+                if tex_size and int(tex_size[0]) > 0 and int(tex_size[1]) > 0:
+                    has_frame = True
+            except Exception:
+                pass
+
+            if has_frame:
+                self._camera_health_retries = 0
+                self._camera_health_ev = None
+                return False
+
+            # No frames yet: retry a couple of times with a delay.
+            retries = int(self._camera_health_retries or 0)
+            if retries >= 3:
+                self._camera_health_ev = None
+                return False
+
+            self._camera_health_retries = retries + 1
+
+            def _restart(*_):
+                try:
+                    self.camera_should_play = False
+                except Exception:
+                    pass
+                try:
+                    if hasattr(cam, "index"):
+                        cam.index = -2
+                except Exception:
+                    pass
+
+                # Try again shortly after.
+                def _resume(*_2):
+                    try:
+                        if hasattr(cam, "index"):
+                            cam.index = int(self.active_camera_index or 0)
+                    except Exception:
+                        pass
+                    self._start_camera_when_ready()
+
+                Clock.schedule_once(_resume, 0.35)
+
+            Clock.schedule_once(_restart, 0)
+            return True
+
+        # Check a bit after starting so the camera backend has time to connect.
+        def _start_interval(*_):
+            # Replace the placeholder with the actual interval event.
+            self._camera_health_ev = Clock.schedule_interval(_check, 0.6)
+
+        self._camera_health_ev = Clock.schedule_once(_start_interval, 0.8)
+
+    def _schedule_preview_portrait_autofix(self) -> None:
+        """
+        Enforce portrait preview for BOTH cameras.
+
+        We use runtime texture aspect as a fallback because Android camera
+        metadata can be inconsistent across OEMs, while the actual frame size
+        reliably tells us if the preview is landscape.
+        """
+        if self._preview_autofix_ev is not None:
+            return
+
+        def _fix(_dt):
+            cam = self.ids.get("local_camera")
+            if cam is None:
+                self._preview_autofix_ev = None
+                return False
+            if not (bool(self.camera_permission_granted) and bool(self.camera_should_play)):
+                self._preview_autofix_ev = None
+                return False
+
+            try:
+                ts = getattr(cam, "texture_size", None) or (0, 0)
+                tw, th = int(ts[0] or 0), int(ts[1] or 0)
+            except Exception:
+                tw, th = 0, 0
+
+            if tw <= 0 or th <= 0:
+                # Wait until the first frame arrives.
+                return True
+
+            # If the camera frames are landscape but our UI is portrait, ensure we rotate by 90deg.
+            if tw > th:
+                # Preserve any existing +/-90 choice if already applied.
+                if int(self.local_preview_rotation or 0) not in (90, -90):
+                    self.local_preview_rotation = -90
+            else:
+                # Texture is already portrait; don't rotate.
+                self.local_preview_rotation = 0
+
+            self._preview_autofix_ev = None
+            return False
+
+        # Retry for a short period until frames exist.
+        self._preview_autofix_ev = Clock.schedule_interval(_fix, 0.25)
 
     def _refresh_android_permission_state(self) -> None:
         if platform != "android":
@@ -577,7 +771,7 @@ class VideoScreen(Screen):
             camera.index = int(new_index)
 
             if was_playing:
-                Clock.schedule_once(lambda *_: setattr(self, "camera_should_play", True), 0.25)
+                Clock.schedule_once(lambda *_: self._start_camera_when_ready(), 0.25)
         except Exception:
             Logger.exception("VideoScreen: failed to toggle camera")
             # Best-effort: resume preview if we paused it.
