@@ -245,6 +245,10 @@ __pycache__/*
 .github/*
 .buildozer/*
 bin/*
+apache-ant-*
+apache-ant-*/*
+apache-ant-*/*/*
+apache-ant-*/*/*/*
 tmp_kivy221/*
 tmp_kivyzip/*
 tmp_kivysdist/*
