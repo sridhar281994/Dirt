@@ -5,11 +5,12 @@ from threading import Thread
 from kivy.clock import Clock
 from kivy.logger import Logger
 from kivy.properties import BooleanProperty, NumericProperty, StringProperty
+from kivy.metrics import dp
 from kivy.uix.screenmanager import Screen
 from kivy.utils import platform
 
 from frontend_app.utils.android_camera import get_android_camera_ids
-from frontend_app.utils.api import ApiError, api_video_match
+from frontend_app.utils.api import ApiError, api_get_public_messages, api_post_public_message, api_video_match
 
 
 class StartVideoDateScreen(Screen):
@@ -29,9 +30,22 @@ class StartVideoDateScreen(Screen):
     front_camera_index = NumericProperty(1)
     is_front_camera = BooleanProperty(False)
 
+    # Local preview transform (rotate + mirror/flip) for correct device orientation.
+    local_preview_rotation = NumericProperty(0)
+    local_preview_scale_x = NumericProperty(1)
+    local_preview_scale_y = NumericProperty(1)
+    local_preview_swap_wh = BooleanProperty(False)
+
+    # Microphone mute toggle (UI + Android AudioManager).
+    is_muted = BooleanProperty(False)
+
+    # Public chat overlay (small, last 5 messages).
+    _chat_ticker = None
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._init_camera_ids()
+        self._init_local_preview_transform()
 
     def _init_camera_ids(self) -> None:
         try:
@@ -47,6 +61,34 @@ class StartVideoDateScreen(Screen):
 
     def _update_front_flag(self) -> None:
         self.is_front_camera = int(self.active_camera_index) == int(self.front_camera_index)
+        self._update_local_preview_transform()
+
+    def _init_local_preview_transform(self) -> None:
+        self._update_local_preview_transform()
+
+    def _update_local_preview_transform(self) -> None:
+        """
+        Fix camera preview orientation.
+
+        Many Android devices provide a camera texture that needs a 90° rotation for portrait UI.
+        Additionally, Kivy's camera texture can appear vertically inverted on some devices, so we
+        apply a Y flip for consistent "upright" display.
+        """
+        if platform == "android":
+            # Requested: rotate preview 90° and ensure it's not upside-down.
+            self.local_preview_rotation = 90
+            self.local_preview_scale_y = -1
+        else:
+            self.local_preview_rotation = 0
+            self.local_preview_scale_y = 1
+
+        try:
+            self.local_preview_swap_wh = int(abs(float(self.local_preview_rotation)) % 180) == 90
+        except Exception:
+            self.local_preview_swap_wh = False
+
+        # Mirror selfie preview on X for front camera.
+        self.local_preview_scale_x = -1 if bool(self.is_front_camera) else 1
 
     def on_pre_enter(self, *args):
         self._init_camera_ids()
@@ -54,12 +96,14 @@ class StartVideoDateScreen(Screen):
 
     def on_enter(self, *args):
         self._ensure_android_av_permissions()
+        self._start_chat_polling()
         self.retry()
 
     def on_leave(self, *args):
         self._stop_spinner()
         self._cancel_retry()
         self._stop_camera()
+        self._stop_chat_polling()
 
     def _refresh_android_permission_state(self) -> None:
         if platform != "android":
@@ -127,6 +171,30 @@ class StartVideoDateScreen(Screen):
         if was_playing:
             Clock.schedule_once(lambda *_: setattr(self, "camera_should_play", True), 0.25)
 
+    def toggle_mute(self) -> None:
+        """
+        Toggle local microphone mute (Android).
+
+        This mirrors `VideoScreen.toggle_mute()` so users can quickly mute/unmute
+        while waiting for a match.
+        """
+        self.is_muted = not bool(self.is_muted)
+
+        if platform != "android":
+            return
+
+        try:
+            from jnius import autoclass, cast  # type: ignore
+
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            context = PythonActivity.mActivity
+            AudioManager = autoclass("android.media.AudioManager")
+            service = context.getSystemService(context.AUDIO_SERVICE)
+            am = cast("android.media.AudioManager", service)
+            am.setMicrophoneMute(bool(self.is_muted))
+        except Exception:
+            Logger.exception("StartVideoDateScreen: failed to toggle microphone mute")
+
     def _start_spinner(self) -> None:
         if self._spin_ev is None:
             self._spin_ev = Clock.schedule_interval(self._spin, 1 / 30)
@@ -186,9 +254,100 @@ class StartVideoDateScreen(Screen):
 
         Thread(target=work, daemon=True).start()
 
+    def _start_chat_polling(self) -> None:
+        self._stop_chat_polling()
+        # Poll public chat lightly; keep UI responsive.
+        self._chat_ticker = Clock.schedule_interval(self._poll_chat, 3.0)
+        self._poll_chat(0)
+
+    def _stop_chat_polling(self) -> None:
+        if self._chat_ticker:
+            try:
+                self._chat_ticker.cancel()
+            except Exception:
+                pass
+            self._chat_ticker = None
+
+    def _poll_chat(self, _dt) -> None:
+        def work():
+            try:
+                data = api_get_public_messages(limit=30)
+                msgs = data.get("messages") or []
+                msgs = list(msgs)[-5:]  # show only last five
+
+                def update_ui(*_):
+                    box = self.ids.get("chat_box")
+                    if not box:
+                        return
+
+                    try:
+                        box.clear_widgets()
+                    except Exception:
+                        return
+
+                    from kivy.uix.label import Label
+
+                    for m in msgs:
+                        sender = str(m.get("sender_name") or "Unknown")
+                        text = str(m.get("message") or "")
+                        msg_text = f"[b]{sender}[/b]: {text}"
+
+                        lbl = Label(
+                            text=msg_text,
+                            markup=True,
+                            size_hint_y=None,
+                            height=dp(22),
+                            size_hint_x=1,
+                            halign="left",
+                            valign="middle",
+                            text_size=(box.width, None),
+                            color=(1, 1, 1, 1),
+                        )
+                        # Keep wrapping width in sync with layout allocation.
+                        lbl.bind(width=lambda inst, w: setattr(inst, "text_size", (w, None)))
+                        # Only adjust height based on texture; never set width from texture_size.
+                        lbl.bind(texture_size=lambda inst, s: setattr(inst, "height", s[1] + dp(6)))
+
+                        box.add_widget(lbl)
+
+                    # Scroll to bottom (latest) in the small overlay.
+                    scroll = self.ids.get("chat_overlay")
+                    if scroll:
+                        try:
+                            scroll.scroll_y = 0
+                        except Exception:
+                            pass
+
+                Clock.schedule_once(update_ui, 0)
+            except Exception:
+                # Suppress polling errors.
+                pass
+
+        Thread(target=work, daemon=True).start()
+
+    def send_message(self) -> None:
+        inp = self.ids.get("chat_input")
+        if not inp:
+            return
+        msg = (inp.text or "").strip()
+        if not msg:
+            return
+
+        inp.text = ""
+
+        def work():
+            try:
+                api_post_public_message(message=msg)
+                Clock.schedule_once(lambda *_: self._poll_chat(0), 0)
+            except ApiError:
+                pass
+
+        Thread(target=work, daemon=True).start()
+
     def go_back(self) -> None:
         self._stop_spinner()
         self._cancel_retry()
         self._stop_camera()
+        self._stop_chat_polling()
         if self.manager:
             self.manager.current = "choose"
