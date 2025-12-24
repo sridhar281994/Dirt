@@ -1458,8 +1458,8 @@
                 id: local_camera
                 play: root.camera_permission_granted and root.camera_should_play
                 fit_mode: "cover"
-
-                # >>> ANDROID ORIENTATION + MIRROR FIX (ADDED ONLY)
+            
+                # >>> MIRROR + ROTATION FIX
                 canvas.before:
                     PushMatrix
                     Rotate:
@@ -1472,6 +1472,7 @@
                 canvas.after:
                     PopMatrix
                 # <<< END FIX
+
 
         # Loading spinner
         Scatter:
