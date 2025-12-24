@@ -1393,7 +1393,8 @@
             size_hint: None, None
             # Make local preview easier to see.
             size: dp(120), dp(160)
-            pos_hint: {"right": 0.98, "y": 0.12}
+            # Keep it at bottom-right, just above the controls overlay.
+            pos: root.width - self.width - dp(10), controls_overlay.height + dp(10)
             opacity: 1
             
             canvas.before:
@@ -1444,46 +1445,15 @@
                 size: self.size
 
         ####################################################################
-        # CAMERA PREVIEW (SINGLE SOURCE – NO DUPLICATES)
-        ####################################################################
-        Scatter:
-            id: camera_scatter
-            size_hint: 1, 1
-            pos: 0, 0
-            do_translation: False
-            do_scale: False
-            do_rotation: False
-
-            # Rotation comes ONLY from Python based on device orientation
-            rotation: root.local_preview_rotation
-            center: self.parent.center
-
-            canvas.before:
-                PushMatrix
-                Scale:
-                    # Front cam mirrored, back cam normal
-                    x: -1 if root.is_front_camera else 1
-                    y: 1
-                    origin: self.center
-            canvas.after:
-                PopMatrix
-
-            AndroidSafeCamera:
-                id: local_camera
-                play: root.camera_permission_granted and root.camera_should_play
-                fit_mode: "cover"
-                size_hint: None, None
-                size: self.parent.height, self.parent.width
-                center: self.parent.center
-
-        ####################################################################
-        # SELF CAMERA PiP (BOTTOM-RIGHT)
+        # LOCAL CAMERA PREVIEW (SINGLE INSTANCE, BOTTOM-RIGHT ONLY)
         ####################################################################
         BoxLayout:
             id: self_pip
             size_hint: None, None
             size: dp(120), dp(160)
-            pos_hint: {"right": 0.98, "y": 0.02}
+            # Absolute positioning keeps it reliably bottom-right on all screens.
+            # Place it just above the bottom controls so it never overlaps buttons.
+            pos: root.width - self.width - dp(10), bottom_controls.height + dp(10)
 
             canvas.before:
                 Color:
@@ -1493,10 +1463,32 @@
                     size: self.size
                     radius: [dp(12)]
 
-            Image:
-                texture: local_camera.texture
-                allow_stretch: True
-                keep_ratio: False
+            # No rotation. Optional selfie-mirror for the front camera via scale_x.
+            Scatter:
+                size_hint: 1, 1
+                pos: 0, 0
+                do_translation: False
+                do_scale: False
+                do_rotation: False
+                rotation: 0
+                center: self.parent.center
+
+                canvas.before:
+                    PushMatrix
+                    Scale:
+                        x: root.local_preview_scale_x
+                        y: 1
+                        origin: self.center
+                canvas.after:
+                    PopMatrix
+
+                AndroidSafeCamera:
+                    id: local_camera
+                    play: root.camera_permission_granted and root.camera_should_play
+                    fit_mode: "cover"
+                    allow_stretch: True
+                    keep_ratio: False
+                    size_hint: 1, 1
 
         ####################################################################
         # LOADING SPINNER
@@ -1623,6 +1615,7 @@
         # BOTTOM CONTROLS
         ####################################################################
         BoxLayout:
+            id: bottom_controls
             size_hint: 1, None
             height: dp(104)
             pos_hint: {"y": 0}
