@@ -350,11 +350,11 @@ class ChooseScreen(Screen):
     def start_random_video_chat(self) -> None:
         if not self.manager:
             return
-        
-        # Preference is already set and locked for free users in on_pre_enter/set_preference
-        video = self.manager.get_screen("video")
-        video.start_random(preference=self.preference)
-        self.manager.current = "video"
+
+        # Dedicated screen to isolate UI bugs + show proper loading when no users online.
+        svd = self.manager.get_screen("start_video_date")
+        svd.preference = self.preference  # pass gender preference
+        self.manager.current = "start_video_date"
     
     def start_public_chat(self) -> None:
         if self.manager.has_screen("public_chat"):

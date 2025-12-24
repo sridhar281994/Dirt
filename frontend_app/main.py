@@ -59,6 +59,7 @@ class ChatApp(App):
             from frontend_app.screens.reset_password_screen import ForgotPasswordScreen, ResetPasswordScreen
             from frontend_app.screens.usermatch_screen import UserMatchScreen
             from frontend_app.screens.edit_profile_screen import EditProfileScreen
+            from frontend_app.screens.Start_Video_Date import StartVideoDateScreen
 
             self.sm = ScreenManager()
             self.sm.add_widget(WelcomeScreen(name="welcome"))
@@ -71,6 +72,7 @@ class ChatApp(App):
             self.sm.add_widget(ChatScreen(name="chat"))
             self.sm.add_widget(PublicChatScreen(name="public_chat"))
             self.sm.add_widget(VideoScreen(name="video"))
+            self.sm.add_widget(StartVideoDateScreen(name="start_video_date"))
             self.sm.add_widget(UserMatchScreen(name="user_match"))
 
             # If user opted into "Keep me logged in", skip to Choose.

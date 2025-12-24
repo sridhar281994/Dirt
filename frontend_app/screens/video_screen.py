@@ -12,6 +12,7 @@ from kivy.utils import platform
 from kivy.logger import Logger
 
 from frontend_app.utils.api import ApiError, api_video_match, api_video_end, api_get_messages, api_post_message
+from frontend_app.utils.android_camera import get_android_camera_ids
 
 
 class VideoScreen(Screen):
@@ -42,7 +43,10 @@ class VideoScreen(Screen):
 
     # Drive Camera.play via KV binding so we can safely pause during switches.
     camera_should_play = BooleanProperty(True)
-    active_camera_index = NumericProperty(0)  # 0=back, 1=front
+    active_camera_index = NumericProperty(0)
+    back_camera_index = NumericProperty(0)
+    front_camera_index = NumericProperty(1)
+    is_front_camera = BooleanProperty(False)
 
     # Remote connection/loading state
     is_remote_connected = BooleanProperty(False)
@@ -64,9 +68,28 @@ class VideoScreen(Screen):
         self._preview_autofix_ev = None
         self._camera_start_focus_retries = 0
         self._camera_health_retries = 0
+        self._init_camera_ids()
+
+    def _init_camera_ids(self) -> None:
+        """
+        Detect actual Android camera IDs so "Back-cam" doesn't go black on devices
+        where the ordering differs or a camera is missing.
+        """
+        try:
+            ids = get_android_camera_ids()
+            self.back_camera_index = int(ids.back)
+            self.front_camera_index = int(ids.front)
+            # Default to BACK camera on enter (device-specific ID).
+            self.active_camera_index = int(ids.back)
+        except Exception:
+            # Keep defaults.
+            self.back_camera_index = 0
+            self.front_camera_index = 1
+            self.active_camera_index = 0
 
     def on_pre_enter(self, *args):
         # Refresh permission flags whenever screen is about to show.
+        self._init_camera_ids()
         self._refresh_android_permission_state()
 
     def on_enter(self, *args):
@@ -100,8 +123,9 @@ class VideoScreen(Screen):
         # User requested: "Camera must not rotate."
         self.local_preview_rotation = 0
         
-        # Keep mirroring for front camera (index 1)
-        is_front = int(self.active_camera_index or 0) == 1
+        # Keep mirroring for front camera.
+        is_front = int(self.active_camera_index or 0) == int(self.front_camera_index or 1)
+        self.is_front_camera = bool(is_front)
         self.local_preview_scale_x = -1 if is_front else 1
 
     def _cancel_camera_monitors(self) -> None:
@@ -366,43 +390,15 @@ class VideoScreen(Screen):
         def work():
             try:
                 data = api_video_match(preference=self.last_preference)
-                sess = (data or {}).get("session") or {}
-                match = (data or {}).get("match") or {}
-                duration = int((data or {}).get("duration_seconds") or 40)
 
                 def apply(*_):
-                    self.session_id = int(sess.get("id") or 0)
-                    self.channel = str((data or {}).get("channel") or "")
-                    self.agora_app_id = str((data or {}).get("agora_app_id") or "")
-
-                    self.match_name = str(match.get("name") or "")
-                    self.match_username = str(match.get("username") or "")
-                    self.match_country = str(match.get("country") or "")
-                    self.match_desc = str(match.get("description") or "")
-                    self.match_is_online = bool(match.get("is_online") or False)
-                    self.match_user_id = int(match.get("id") or 0)
-                    
-                    # Set image URL with fallback
-                    raw_img = str(match.get("image_url") or "")
-                    if raw_img.strip():
-                        self.match_image_url = self._normalize_image_url(raw_img)
-                    else:
-                        self.match_image_url = self._fallback_avatar_url(
-                            self.match_name or self.match_username or "User"
-                        )
-
-                    self.duration_seconds = duration
-                    self.remaining_seconds = duration
-                    self._start_timer()
-                    # If permissions are already granted, start local preview immediately.
-                    self._ensure_android_av_permissions()
-                    # Remote "connected" when we actually have an online match.
-                    self._sync_remote_loading_state()
+                    self.apply_match_payload(data, preference=self.last_preference)
 
                 Clock.schedule_once(apply, 0)
             except ApiError as exc:
                 # Keep UI simple: show the error in the screen label via properties.
                 error_msg = str(exc)
+
                 def apply_err(*_):
                     self.session_id = 0
                     self.channel = ""
@@ -422,6 +418,46 @@ class VideoScreen(Screen):
                 Clock.schedule_once(apply_err, 0)
 
         Thread(target=work, daemon=True).start()
+
+    def apply_match_payload(self, data: dict, *, preference: str = "both") -> None:
+        """
+        Apply a match response payload returned by backend `/api/video/match`.
+
+        This is used by:
+        - VideoScreen.start_random() (legacy flow)
+        - StartVideoDateScreen (new dedicated "Start Video Date" screen)
+        """
+        self.last_preference = (preference or "both").strip().lower() or "both"
+
+        payload = data or {}
+        sess = payload.get("session") or {}
+        match = payload.get("match") or {}
+        duration = int(payload.get("duration_seconds") or 40)
+
+        self.session_id = int(sess.get("id") or 0)
+        self.channel = str(payload.get("channel") or "")
+        self.agora_app_id = str(payload.get("agora_app_id") or "")
+
+        self.match_name = str(match.get("name") or "")
+        self.match_username = str(match.get("username") or "")
+        self.match_country = str(match.get("country") or "")
+        self.match_desc = str(match.get("description") or "")
+        self.match_is_online = bool(match.get("is_online") or False)
+        self.match_user_id = int(match.get("id") or 0)
+
+        raw_img = str(match.get("image_url") or "")
+        if raw_img.strip():
+            self.match_image_url = self._normalize_image_url(raw_img)
+        else:
+            self.match_image_url = self._fallback_avatar_url(
+                self.match_name or self.match_username or "User"
+            )
+
+        self.duration_seconds = duration
+        self.remaining_seconds = duration
+        self._start_timer()
+        self._ensure_android_av_permissions()
+        self._sync_remote_loading_state()
 
     def next_call(self) -> None:
         # Uses the last chosen preference from ChooseScreen via start_random argument;
@@ -635,13 +671,15 @@ class VideoScreen(Screen):
             was_playing = bool(self.camera_should_play)
             self.camera_should_play = False
 
-            # Flip using our own state (AndroidSafeCamera can set index to -2 while switching).
+            # Flip using detected Android IDs (safer than assuming 0/1).
             current = int(self.active_camera_index or 0)
-            new_index = 0 if current == 1 else 1
-            self.active_camera_index = new_index
+            back = int(self.back_camera_index or 0)
+            front = int(self.front_camera_index or 1)
+            new_index = front if current == back else back
+            self.active_camera_index = int(new_index)
             self._update_local_preview_transform()
 
-            camera.index = int(new_index)
+            camera.index = int(self.active_camera_index)
 
             if was_playing:
                 Clock.schedule_once(lambda *_: self._start_camera_when_ready(), 0.25)
