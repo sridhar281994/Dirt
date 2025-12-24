@@ -2,6 +2,7 @@ import os
 import sys
 import yaml
 import bcrypt
+from datetime import datetime
 from sqlalchemy.orm import Session
 
 # Add repository root to path so we can import models/db
@@ -25,6 +26,9 @@ def load_data():
             continue
             
         password = u_data.pop("password")
+        # Optional: allow dummy YAML to mark users as "online" for match testing.
+        # The backend considers a user online if last_active_at is within 2 minutes.
+        online = bool(u_data.pop("online", False))
         # Multi-byte safe password truncation for bcrypt (max 72 bytes)
         safe_password = password.strip().encode("utf-8")[:72].decode("utf-8", errors="ignore")
         pwd_bytes = safe_password.encode('utf-8')
@@ -32,6 +36,11 @@ def load_data():
         hashed = bcrypt.hashpw(pwd_bytes, salt)
         password_hash = hashed.decode('utf-8')
         
+        if online:
+            u_data["last_active_at"] = datetime.utcnow()
+            # Ensure dummy accounts are available for matching.
+            u_data["is_on_call"] = False
+
         user = User(
             **u_data,
             password_hash=password_hash
