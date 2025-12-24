@@ -1367,30 +1367,14 @@
                             width: 2.0
                             points: [self.x + dp(12), self.y + dp(12), self.right - dp(12), self.top - dp(12)]
 
-                # Camera flip button (fixes "white square" by using a valid atlas key)
+                # Camera flip button (renamed as requested)
                 Button:
-                    text: ""
+                    text: "Front-cam" if root.active_camera_index == 0 else "Back-cam"
+                    font_size: sp(11)
                     size_hint_x: None
-                    width: dp(46)
+                    width: dp(80)
                     background_color: (0.4, 0.4, 0.4, 1)
                     on_release: root.toggle_camera()
-                    # Small rotating icon (looks like a "flip" animation)
-                    Scatter:
-                        id: flip_icon
-                        size_hint: None, None
-                        size: dp(22), dp(22)
-                        pos: self.parent.center_x - self.width / 2.0, self.parent.center_y - self.height / 2.0
-                        do_translation: False
-                        do_scale: False
-                        do_rotation: False
-                        rotation: 0
-                        Image:
-                            # `action_view_reload` is not present in Kivy's defaulttheme.atlas
-                            # so it rendered as the missing-image (white square).
-                            source: "atlas://data/images/defaulttheme/spinner"
-                            size_hint: None, None
-                            size: self.parent.size
-                            pos: 0, 0
                 
                 Button:
                     text: "Next"
