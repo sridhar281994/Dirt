@@ -71,28 +71,25 @@ class StartVideoDateScreen(Screen):
         self._update_local_preview_transform()
 
     def _update_local_preview_transform(self) -> None:
-        """
-        Fix camera preview orientation.
+    """
+    Fix camera preview orientation.
 
-        Many Android devices provide a camera texture that needs a 90° rotation for portrait UI.
-        Additionally, Kivy's camera texture can appear vertically inverted on some devices, so we
-        apply a Y flip for consistent "upright" display.
-        """
-        if platform == "android":
-            # Requested: rotate preview 90° and ensure it's not upside-down.
-            self.local_preview_rotation = 90
-            self.local_preview_scale_y = -1
-        else:
-            self.local_preview_rotation = 0
-            self.local_preview_scale_y = 1
+    Rotate both front and back cameras 180° (upside down) directly.
+    """
+    if platform == "android":
+        self.local_preview_rotation = 180  # Upside-down
+        self.local_preview_scale_y = -1    # Y flip to invert vertically
+    else:
+        self.local_preview_rotation = 0
+        self.local_preview_scale_y = 1
 
-        try:
-            self.local_preview_swap_wh = int(abs(float(self.local_preview_rotation)) % 180) == 90
-        except Exception:
-            self.local_preview_swap_wh = False
+    try:
+        self.local_preview_swap_wh = int(abs(float(self.local_preview_rotation)) % 180) == 90
+    except Exception:
+        self.local_preview_swap_wh = False
 
-        # Mirror selfie preview on X for front camera.
-        self.local_preview_scale_x = -1 if bool(self.is_front_camera) else 1
+    # Mirror selfie preview on X for front camera (optional; keeps appearance correct)
+    self.local_preview_scale_x = -1 if bool(self.is_front_camera) else 1
 
     def on_pre_enter(self, *args):
         self._init_camera_ids()
