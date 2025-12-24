@@ -13,17 +13,6 @@ from frontend_app.utils.api import ApiError, api_video_match
 
 
 class StartVideoDateScreen(Screen):
-    """
-    Dedicated screen for "Start Video Date" so UI + logic are isolated.
-
-    Responsibilities:
-    - Show local camera preview
-    - Show loading spinner while searching for an online user
-    - Keep retrying when no user is online
-    - Match randomly based on gender preference and then route to VideoScreen
-    """
-
-    # Matching / UI state
     preference = StringProperty("both")
     show_loading = BooleanProperty(True)
     status_text = StringProperty("Searching for online users...")
@@ -31,7 +20,6 @@ class StartVideoDateScreen(Screen):
     _retry_ev = None
     _inflight = BooleanProperty(False)
 
-    # Camera
     camera_permission_granted = BooleanProperty(False)
     audio_permission_granted = BooleanProperty(False)
     camera_should_play = BooleanProperty(True)
@@ -50,7 +38,6 @@ class StartVideoDateScreen(Screen):
             ids = get_android_camera_ids()
             self.back_camera_index = int(ids.back)
             self.front_camera_index = int(ids.front)
-            # Always default to BACK camera for this entry screen.
             self.active_camera_index = int(ids.back)
         except Exception:
             self.back_camera_index = 0
@@ -59,7 +46,7 @@ class StartVideoDateScreen(Screen):
         self._update_front_flag()
 
     def _update_front_flag(self) -> None:
-        self.is_front_camera = int(self.active_camera_index or 0) == int(self.front_camera_index or 1)
+        self.is_front_camera = int(self.active_camera_index) == int(self.front_camera_index)
 
     def on_pre_enter(self, *args):
         self._init_camera_ids()
@@ -67,15 +54,12 @@ class StartVideoDateScreen(Screen):
 
     def on_enter(self, *args):
         self._ensure_android_av_permissions()
-        # Auto-start search when entering (preference may be set by ChooseScreen).
         self.retry()
 
     def on_leave(self, *args):
         self._stop_spinner()
         self._cancel_retry()
         self._stop_camera()
-
-    # ---------- Camera (minimal, safe) ----------
 
     def _refresh_android_permission_state(self) -> None:
         if platform != "android":
@@ -84,10 +68,9 @@ class StartVideoDateScreen(Screen):
             return
 
         try:
-            from android.permissions import Permission, check_permission  # type: ignore
-
-            self.camera_permission_granted = bool(check_permission(Permission.CAMERA))
-            self.audio_permission_granted = bool(check_permission(Permission.RECORD_AUDIO))
+            from android.permissions import Permission, check_permission
+            self.camera_permission_granted = check_permission(Permission.CAMERA)
+            self.audio_permission_granted = check_permission(Permission.RECORD_AUDIO)
         except Exception:
             self.camera_permission_granted = False
             self.audio_permission_granted = False
@@ -95,7 +78,7 @@ class StartVideoDateScreen(Screen):
     def _ensure_android_av_permissions(self) -> None:
         self._refresh_android_permission_state()
 
-        if bool(self.camera_permission_granted) and bool(self.audio_permission_granted):
+        if self.camera_permission_granted and self.audio_permission_granted:
             self._start_camera()
             return
 
@@ -104,102 +87,62 @@ class StartVideoDateScreen(Screen):
             return
 
         try:
-            from android.permissions import Permission, request_permissions  # type: ignore
-
-            perms = [Permission.CAMERA, Permission.RECORD_AUDIO]
-
-            def _cb(_permissions, _grants):
-                def _apply(*_):
-                    self._refresh_android_permission_state()
-                    if self.camera_permission_granted:
-                        self._start_camera()
-                Clock.schedule_once(_apply, 0)
-
-            request_permissions(perms, _cb)
+            from android.permissions import Permission, request_permissions
+            request_permissions(
+                [Permission.CAMERA, Permission.RECORD_AUDIO],
+                lambda *_: Clock.schedule_once(lambda __: self._start_camera(), 0),
+            )
         except Exception:
-            Logger.exception("StartVideoDateScreen: permission request failed")
+            Logger.exception("permission request failed")
 
     def _start_camera(self) -> None:
         cam = self.ids.get("local_camera")
-        if not cam:
-            return
-        try:
-            # Ensure camera index is set before play is True.
-            if hasattr(cam, "index"):
-                cam.index = int(self.active_camera_index or 0)
-        except Exception:
-            Logger.exception("StartVideoDateScreen: failed to set camera index")
+        if cam and hasattr(cam, "index"):
+            cam.index = int(self.active_camera_index)
         self.camera_should_play = True
 
     def _stop_camera(self) -> None:
         cam = self.ids.get("local_camera")
         if cam:
-            try:
-                self.camera_should_play = False
-            except Exception:
-                pass
-            try:
-                if hasattr(cam, "index"):
-                    cam.index = -2
-            except Exception:
-                pass
+            self.camera_should_play = False
+            if hasattr(cam, "index"):
+                cam.index = -2
 
     def toggle_camera(self) -> None:
         cam = self.ids.get("local_camera")
         if not cam:
             return
 
-        try:
-            was_playing = bool(self.camera_should_play)
-            self.camera_should_play = False
+        was_playing = self.camera_should_play
+        self.camera_should_play = False
 
-            back = int(self.back_camera_index or 0)
-            front = int(self.front_camera_index or 1)
-            current = int(self.active_camera_index or back)
-            self.active_camera_index = front if current == back else back
-            self._update_front_flag()
+        back = int(self.back_camera_index)
+        front = int(self.front_camera_index)
+        self.active_camera_index = front if self.active_camera_index == back else back
+        self._update_front_flag()
 
-            if hasattr(cam, "index"):
-                cam.index = int(self.active_camera_index)
+        if hasattr(cam, "index"):
+            cam.index = self.active_camera_index
 
-            if was_playing:
-                Clock.schedule_once(lambda *_: setattr(self, "camera_should_play", True), 0.25)
-        except Exception:
-            Logger.exception("StartVideoDateScreen: failed to toggle camera")
-            self.camera_should_play = True
-
-    # ---------- Loading spinner ----------
+        if was_playing:
+            Clock.schedule_once(lambda *_: setattr(self, "camera_should_play", True), 0.25)
 
     def _start_spinner(self) -> None:
         if self._spin_ev is None:
-            self._spin_ev = Clock.schedule_interval(self._spin, 1 / 30.0)
+            self._spin_ev = Clock.schedule_interval(self._spin, 1 / 30)
 
     def _stop_spinner(self) -> None:
-        if self._spin_ev is not None:
-            try:
-                self._spin_ev.cancel()
-            except Exception:
-                pass
+        if self._spin_ev:
+            self._spin_ev.cancel()
             self._spin_ev = None
-        try:
-            sp = self.ids.get("loading_spinner")
-            if sp is not None:
-                sp.rotation = 0
-        except Exception:
-            pass
 
     def _spin(self, _dt):
-        try:
-            sp = self.ids.get("loading_spinner")
-            if sp is not None:
-                sp.rotation = (float(getattr(sp, "rotation", 0.0)) + 10.0) % 360.0
-        except Exception:
-            pass
-
-    # ---------- Match / retry loop ----------
+        sp = self.ids.get("loading_spinner")
+        if sp:
+            sp.rotation = (sp.rotation + 10) % 360
 
     def start_search(self, *, preference: str) -> None:
-        self.preference = (preference or "both").strip().lower() or "both"
+        self.preference = preference
         self.status_text = "Searching for online users..."
         self.show_loading = True
         self._start_spinner()
@@ -207,86 +150,39 @@ class StartVideoDateScreen(Screen):
         self._request_match_once()
 
     def retry(self) -> None:
-        # Called by UI (Retry button) and on_enter().
-        self.start_search(preference=self.preference or "both")
+        self.start_search(preference=self.preference)
 
     def _cancel_retry(self) -> None:
-        if self._retry_ev is not None:
-            try:
-                self._retry_ev.cancel()
-            except Exception:
-                pass
+        if self._retry_ev:
+            self._retry_ev.cancel()
             self._retry_ev = None
 
-    def _schedule_retry(self, *, delay: float = 2.0) -> None:
+    def _schedule_retry(self, delay=2.0) -> None:
         self._cancel_retry()
-        self._retry_ev = Clock.schedule_once(lambda *_: self._request_match_once(), float(delay))
+        self._retry_ev = Clock.schedule_once(lambda *_: self._request_match_once(), delay)
 
     def _request_match_once(self) -> None:
-        if bool(self._inflight):
+        if self._inflight:
             return
         self._inflight = True
 
-        pref = (self.preference or "both").strip().lower() or "both"
-
         def work():
             try:
-                data = api_video_match(preference=pref)
-                match = (data or {}).get("match") or {}
-                has_match = bool(match.get("username")) and bool(match.get("is_online") or False)
+                data = api_video_match(preference=self.preference)
+                match = data.get("match") or {}
+                has_match = match.get("is_online")
 
-                def apply_ok(*_):
+                def apply():
                     self._inflight = False
                     if not has_match:
-                        # No online users (or match not available yet): keep loading + retry.
-                        self.status_text = "No users online. Searching..."
-                        self.show_loading = True
-                        self._start_spinner()
-                        self._schedule_retry(delay=2.0)
+                        self._schedule_retry()
                         return
-
-                    # We have an online match → route into VideoScreen using the payload.
-                    self.show_loading = False
-                    self._stop_spinner()
-                    self.status_text = "Connecting..."
-
-                    if not self.manager:
-                        return
-                    video = self.manager.get_screen("video")
-                    video.apply_match_payload(data, preference=pref)
+                    self.manager.get_screen("video").apply_match_payload(data)
                     self.manager.current = "video"
 
-                Clock.schedule_once(apply_ok, 0)
-            except ApiError as exc:
-                msg = str(exc or "")
-
-                def apply_err(*_):
-                    self._inflight = False
-                    # Treat "no users online" as non-fatal and keep retrying.
-                    low = msg.lower()
-                    if "no online" in low or "no users" in low or "not available" in low:
-                        self.status_text = "No users online. Searching..."
-                        self.show_loading = True
-                        self._start_spinner()
-                        self._schedule_retry(delay=2.5)
-                        return
-
-                    # Other errors: show message but keep trying (backend might be temporarily down).
-                    self.status_text = msg or "Network error. Retrying..."
-                    self.show_loading = True
-                    self._start_spinner()
-                    self._schedule_retry(delay=3.5)
-
-                Clock.schedule_once(apply_err, 0)
-            except Exception:
-                def apply_crash(*_):
-                    self._inflight = False
-                    self.status_text = "Unexpected error. Retrying..."
-                    self.show_loading = True
-                    self._start_spinner()
-                    self._schedule_retry(delay=3.5)
-
-                Clock.schedule_once(apply_crash, 0)
+                Clock.schedule_once(lambda *_: apply(), 0)
+            except ApiError:
+                Clock.schedule_once(lambda *_: self._schedule_retry(3.0), 0)
 
         Thread(target=work, daemon=True).start()
 
@@ -296,4 +192,3 @@ class StartVideoDateScreen(Screen):
         self._stop_camera()
         if self.manager:
             self.manager.current = "choose"
-
