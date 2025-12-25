@@ -75,14 +75,13 @@ class StartVideoDateScreen(Screen):
         """
         Fix camera preview orientation.
 
-        Rotate both front and back cameras 180° (upside down) directly.
+        User requirement:
+        - The preview must NOT be rotated (upright, "same as live").
+        - Front camera may be mirrored (selfie-style), but no rotation.
         """
-        if platform == "android":
-            self.local_preview_rotation = 180  # Upside-down
-            self.local_preview_scale_y = -1  # Y flip to invert vertically
-        else:
-            self.local_preview_rotation = 0
-            self.local_preview_scale_y = 1
+        # No rotation anywhere.
+        self.local_preview_rotation = 0
+        self.local_preview_scale_y = 1
 
         try:
             self.local_preview_swap_wh = int(abs(float(self.local_preview_rotation)) % 180) == 90
