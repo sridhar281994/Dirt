@@ -1,0 +1,26 @@
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local databases / secrets
+*.db
+*.sqlite
+*.sqlite3
+.env
+
+# Build / packaging artifacts (generated locally)
+build/
+dist/
+*.egg-info/
+
+# Kivy / buildozer temp trees (generated)
+tmp_kivy221/
+tmp_kivysdist/
+tmp_kivyzip/
+
+# Uploaded files (served at runtime)
+uploads/
