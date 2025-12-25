@@ -63,6 +63,13 @@ jobs:
             export PATH="$HOME/.local/bin:$PATH"
             # Persist Gradle wrapper/caches inside the workspace so they can be cached between runs.
             export GRADLE_USER_HOME="$PWD/.gradle"
+            
+            # The Android Gradle Plugin can run out of heap during packaging (e.g. :packageDebug),
+            # especially when bundling large AARs (Agora full-sdk, etc.). Increase Gradle/JVM heap.
+            # (If the runner has enough RAM, this prevents java.lang.OutOfMemoryError.)
+            export ORG_GRADLE_JVMARGS="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+            export GRADLE_OPTS="-Dorg.gradle.jvmargs=$ORG_GRADLE_JVMARGS"
+            export JAVA_TOOL_OPTIONS="$ORG_GRADLE_JVMARGS"
 
             # Gradle wrapper downloads sometimes fail transiently in CI (e.g. GitHub 504).
             # Retry a few times before failing the workflow.
