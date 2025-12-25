@@ -483,6 +483,30 @@ def get_chat_history(
         if other_id not in history_map:
             other = s.user_b if s.user_a_id == user.id else s.user_a
             if other:
+                # Lightweight "last message" summary for unread indicators on the client.
+                last_message_id = 0
+                last_message_sender_id = 0
+                last_message_text = ""
+                last_message_at = None
+                try:
+                    last_msg = (
+                        db.query(ChatMessage)
+                        .filter(ChatMessage.session_id == s.id)
+                        .order_by(ChatMessage.id.desc())
+                        .first()
+                    )
+                    if last_msg:
+                        last_message_id = int(last_msg.id or 0)
+                        last_message_sender_id = int(last_msg.sender_id or 0)
+                        last_message_text = str(last_msg.message or "")
+                        try:
+                            last_message_at = last_msg.created_at.isoformat() if last_msg.created_at else None
+                        except Exception:
+                            last_message_at = None
+                except Exception:
+                    # Best-effort only; never block history.
+                    pass
+
                 history_map[other_id] = {
                     "user_id": other.id,
                     "name": other.name,
@@ -492,6 +516,10 @@ def get_chat_history(
                     "mode": s.mode,
                     "is_on_call": bool(other.is_on_call),
                     "is_online": _is_online(other),
+                    "last_message_id": last_message_id,
+                    "last_message_sender_id": last_message_sender_id,
+                    "last_message_text": last_message_text,
+                    "last_message_at": last_message_at,
                 }
     
     return {

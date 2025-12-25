@@ -7,8 +7,10 @@ from kivy.properties import NumericProperty, StringProperty
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen
+from kivy.metrics import dp
 
 from frontend_app.utils.api import ApiError, api_get_messages, api_post_message
+from frontend_app.utils.storage import get_last_read_message_id, get_user, set_last_read_message_id
 
 
 def _popup(title: str, msg: str) -> None:
@@ -47,6 +49,13 @@ class ChatScreen(Screen):
         if sid <= 0:
             return
 
+        me = get_user() or {}
+        try:
+            my_id = int(me.get("id") or 0)
+        except Exception:
+            my_id = 0
+        last_read = get_last_read_message_id(session_id=sid)
+
         def work():
             try:
                 data = api_get_messages(session_id=sid)
@@ -57,8 +66,57 @@ class ChatScreen(Screen):
                     if not box:
                         return
                     box.clear_widgets()
+                    max_id = 0
                     for m in msgs:
-                        box.add_widget(Label(text=f"{m.get('sender_id')}: {m.get('message')}", size_hint_y=None, height=24))
+                        try:
+                            mid = int(m.get("id") or 0)
+                        except Exception:
+                            mid = 0
+                        if mid > max_id:
+                            max_id = mid
+
+                        try:
+                            sender_id = int(m.get("sender_id") or 0)
+                        except Exception:
+                            sender_id = 0
+                        text = str(m.get("message") or "")
+                        is_unread = bool(mid and mid > last_read and (my_id and sender_id != my_id))
+
+                        who = "Me" if (my_id and sender_id == my_id) else "Partner"
+                        prefix = f"[b]{who}[/b]: "
+                        if is_unread:
+                            msg_text = f"[b]{prefix}{text}[/b]"
+                            color = (1, 1, 1, 1)
+                        else:
+                            msg_text = f"{prefix}{text}"
+                            color = (0.85, 0.85, 0.85, 1)
+
+                        lbl = Label(
+                            text=msg_text,
+                            markup=True,
+                            size_hint_y=None,
+                            height=dp(24),
+                            size_hint_x=1,
+                            halign="left",
+                            valign="middle",
+                            text_size=(box.width, None),
+                            color=color,
+                        )
+                        lbl.bind(width=lambda inst, w: setattr(inst, "text_size", (w, None)))
+                        lbl.bind(texture_size=lambda inst, s: setattr(inst, "height", s[1] + dp(8)))
+                        box.add_widget(lbl)
+
+                    # Scroll to bottom (latest).
+                    scroll = self.ids.get("messages_scroll")
+                    if scroll is not None:
+                        try:
+                            scroll.scroll_y = 0
+                        except Exception:
+                            pass
+
+                    # Mark everything up to the latest message as read (local-only).
+                    if max_id > 0:
+                        set_last_read_message_id(session_id=sid, message_id=max_id)
 
                 Clock.schedule_once(render, 0)
             except ApiError as exc:

@@ -42,6 +42,14 @@ class WelcomeScreen(Screen):
 class ChatApp(App):
     def build(self):
         self.title = "Buddymeet"
+        # Mobile keyboard: keep the focused TextInput visible (avoid being covered).
+        try:
+            from kivy.core.window import Window
+
+            # Works well on Android: pans/scrolls so the focused widget stays above keyboard.
+            Window.softinput_mode = "below_target"
+        except Exception:
+            pass
         app_dir = os.path.dirname(__file__)
         self.icon = os.path.join(app_dir, "assets", "icon.png")
         try:
