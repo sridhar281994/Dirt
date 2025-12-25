@@ -1445,14 +1445,14 @@
                 size: self.size
 
         ####################################################################
-        # LOCAL CAMERA PREVIEW (SINGLE INSTANCE, BOTTOM-RIGHT ONLY)
+        # LOCAL CAMERA PREVIEW (BOTTOM-RIGHT, STRAIGHT)
         ####################################################################
         BoxLayout:
             id: self_pip
             size_hint: None, None
-            size: dp(140), dp(190)   # WhatsApp-like size
-            pos_hint: {"right": 0.97, "y": 0.12}
-        
+            size: dp(150), dp(200)
+            pos: root.width - self.width - dp(12), dp(12)
+
             canvas.before:
                 Color:
                     rgba: 0, 0, 0, 0.9
@@ -1460,41 +1460,32 @@
                     pos: self.pos
                     size: self.size
                     radius: [dp(14)]
-        
+
             Scatter:
                 size_hint: 1, 1
                 pos: 0, 0
                 do_translation: False
                 do_scale: False
                 do_rotation: False
-        
-                # 🔑 KEY FIX
-                # Camera texture is landscape → rotate to portrait
-                rotation: 90
-        
+                rotation: 0
                 center: self.parent.center
-        
+
                 canvas.before:
                     PushMatrix
                     Scale:
-                        # Mirror ONLY for front camera
                         x: -1 if root.is_front_camera else 1
                         y: 1
                         origin: self.center
                 canvas.after:
                     PopMatrix
-        
+
                 AndroidSafeCamera:
                     id: local_camera
                     play: root.camera_permission_granted and root.camera_should_play
                     fit_mode: "cover"
-                    size_hint: None, None
-        
-                    # 🔑 KEY FIX
-                    # Swap width/height because texture is landscape
-                    size: self.parent.height, self.parent.width
-                    center: self.parent.center
-
+                    allow_stretch: True
+                    keep_ratio: False
+                    size_hint: 1, 1
 
         ####################################################################
         # LOADING SPINNER
@@ -1673,7 +1664,6 @@
                     text: "Cancel"
                     size_hint_x: 0.4
                     on_release: root.go_back()
-
 
 <UserMatchScreen>:
     name: "user_match"
