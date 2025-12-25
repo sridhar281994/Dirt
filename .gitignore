@@ -1,6 +1,7 @@
 *.pyc
 *.pyo
 *.pyd
+*.log
 __pycache__/
 .pytest_cache/
 .mypy_cache/
