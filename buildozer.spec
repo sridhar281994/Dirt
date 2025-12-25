@@ -44,7 +44,12 @@ version = 0.1
 
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
-requirements = python3,kivy,kivymd,pillow,requests,pyjnius
+#
+# Keep requirements minimal to reduce APK/AAB size.
+requirements = python3,kivy,pillow,requests,pyjnius
+
+# Extra python-for-android flags (helps reduce binary size).
+p4a.extra_args = --strip --optimize=2
 
 # (str) Custom source folders for requirements
 # Sets custom source for any requirements with recipes
@@ -84,7 +89,11 @@ fullscreen = 0
 android.permissions = INTERNET,CAMERA,RECORD_AUDIO,MODIFY_AUDIO_SETTINGS,ACCESS_NETWORK_STATE
 
 # Agora RTC SDK (Android)
-android.gradle_dependencies = io.agora.rtc:full-sdk:4.5.0
+# Use the smaller rtc-sdk artifact (full-sdk includes extra modules we don't use).
+android.gradle_dependencies = io.agora.rtc:rtc-sdk:4.5.0
+
+# Prefer AAB for smaller Play distribution (still can build APK for debugging).
+android.release_artifact = aab
 
 # (int) Target Android API, should be as high as possible.
 android.api = 31

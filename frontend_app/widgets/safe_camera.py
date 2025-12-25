@@ -37,79 +37,87 @@ class AndroidSafeCamera(Camera):
         self._last_working_index: int | None = None
         self._switch_scheduled = False
 
-    def on_index(self, _instance, value):  # type: ignore[override]
-        # Guard: ignore negative indexes (means "do not connect").
-        try:
-            if value is None or int(value) < 0:
-                return
-        except Exception:
-            return
+    def _switch_to(self, target: int, *, delay: float = 0.35) -> None:
+        """
+        Switch camera index on the next frame.
 
-        # Normal behavior (may still fail, but we catch it to avoid app crash).
-        #
-        # Kivy's Camera does not implement `on_index`; it binds `index` to its
-        # private method `_on_index` (see kivy/uix/camera.py). Calling
-        # super().on_index(...) will raise AttributeError on many Kivy versions.
-        try:
-            # Ensure underlying CoreCamera is (re)created.
-            if hasattr(self, "_on_index"):
-                self._on_index()  # type: ignore[attr-defined]
+        Important: Changing `index` inside `_on_index` can recurse; scheduling avoids re-entrancy.
+        """
+        if self._switch_scheduled:
+            return
+        self._switch_scheduled = True
+
+        def _do(_dt):
+            self._switch_scheduled = False
             try:
-                self._last_working_index = int(value)
+                self.index = int(target)
+            except Exception:
+                # Give up: disconnected state.
+                try:
+                    self.index = -2
+                except Exception:
+                    pass
+
+        Clock.schedule_once(_do, float(delay or 0))
+
+    def _on_index(self, *largs):  # type: ignore[override]
+        """
+        Wrap Kivy's Camera._on_index with crash-safety and a small fallback strategy.
+
+        Why:
+        - Kivy's Camera binds `index` to `_on_index` directly (not `on_index`).
+        - If CoreCamera initialization throws (common on some Android devices),
+          it can crash the app unless we catch it here.
+        """
+        try:
+            # Fast-path: don't connect on negative indices.
+            try:
+                if int(getattr(self, "index", -1) or -1) < 0:
+                    return
+            except Exception:
+                return
+
+            ret = super()._on_index(*largs)
+            try:
+                self._last_working_index = int(getattr(self, "index", 0) or 0)
             except Exception:
                 self._last_working_index = None
-            return None
+            return ret
         except Exception:
-            Logger.exception("AndroidSafeCamera: failed to init camera (index=%s)", value)
+            Logger.exception("AndroidSafeCamera: failed to init camera (index=%s)", getattr(self, "index", None))
 
-            # If an index fails (e.g., index=1 on a single-camera device), try a safe fallback.
             try:
-                failed = int(value)
+                failed = int(getattr(self, "index", -999999) or -999999)
             except Exception:
                 failed = -999999
             self._failed_indices.add(failed)
 
             # Heuristic recovery:
             # - If non-zero index failed, fall back to 0.
-            # - If 0 failed, retry once (some backends return an initial None frame).
-            def _switch_to(target: int, *, delay: float = 0.35) -> None:
-                # Avoid re-entrant index sets inside property dispatch; schedule on next frame.
-                if self._switch_scheduled:
-                    return
-                self._switch_scheduled = True
-
-                def _do(_dt):
-                    self._switch_scheduled = False
-                    try:
-                        self.index = target
-                    except Exception:
-                        # Give up: disconnected state.
-                        try:
-                            self.index = -2
-                        except Exception:
-                            pass
-
-                Clock.schedule_once(_do, float(delay or 0))
-
+            # - If 0 failed, retry once (some backends are flaky on first open).
             if failed >= 1 and 0 not in self._failed_indices:
                 Logger.warning("AndroidSafeCamera: falling back to index=0 (failed index=%s)", failed)
-                _switch_to(0, delay=0.35)
-            else:
-                # Retry index 0 once if it failed, then give up cleanly.
-                if failed == 0:
-                    c = int(self._retry_counts.get(0, 0))
-                    if c < 1:
-                        self._retry_counts[0] = c + 1
-                        Logger.warning("AndroidSafeCamera: retrying index=0 once after failure")
-                        _switch_to(0, delay=0.6)
-                        return None
+                self._switch_to(0, delay=0.35)
+                return
 
-                # Reset to "disconnected" state so app continues.
-                try:
-                    self.index = -2
-                except Exception:
-                    pass
-            return None
+            if failed == 0:
+                c = int(self._retry_counts.get(0, 0))
+                if c < 1:
+                    self._retry_counts[0] = c + 1
+                    Logger.warning("AndroidSafeCamera: retrying index=0 once after failure")
+                    self._switch_to(0, delay=0.6)
+                    return
+
+            # Reset to a safe disconnected state so app continues.
+            try:
+                self.index = -2
+            except Exception:
+                pass
+            try:
+                self.play = False
+            except Exception:
+                pass
+            return
 
     def on_play(self, _instance, value):  # type: ignore[override]
         # Kivy toggles play; connect/disconnect safely.
@@ -128,10 +136,10 @@ class AndroidSafeCamera(Camera):
                 Logger.exception("AndroidSafeCamera: could not set index=0")
 
             try:
-                # Make sure CoreCamera exists before starting.
+                # Ensure CoreCamera exists before starting (index might already be set).
                 try:
-                    if hasattr(self, "_on_index"):
-                        self._on_index()  # type: ignore[attr-defined]
+                    if getattr(self, "_camera", None) is None and hasattr(self, "_on_index"):
+                        self._on_index()
                 except Exception:
                     pass
                 return super().on_play(_instance, value)

@@ -9,7 +9,7 @@ from kivy.uix.image import AsyncImage
 from kivy.metrics import dp, sp
 
 from frontend_app.utils.api import api_get_history, ApiError
-from frontend_app.utils.storage import get_user
+from frontend_app.utils.storage import get_last_read_message_id, get_user
 
 class UserMatchScreen(Screen):
     def on_pre_enter(self, *args):
@@ -22,7 +22,7 @@ class UserMatchScreen(Screen):
                 history = data.get("history") or []
                 Clock.schedule_once(lambda *_: self._display_history(history), 0)
             except ApiError as exc:
-                print(f"History error: {exc}")
+                print(f"Messages error: {exc}")
 
         Thread(target=work, daemon=True).start()
 
@@ -33,9 +33,15 @@ class UserMatchScreen(Screen):
         box.clear_widgets()
 
         if not history:
-            lbl = Label(text="No chat history yet.", size_hint_y=None, height=dp(40), color=(0.8,0.8,0.8,1))
+            lbl = Label(text="No messages yet.", size_hint_y=None, height=dp(40), color=(0.8, 0.8, 0.8, 1))
             box.add_widget(lbl)
             return
+
+        me = get_user() or {}
+        try:
+            my_id = int(me.get("id") or 0)
+        except Exception:
+            my_id = 0
 
         for item in history:
             # item = {user_id, name, image_url, last_seen, session_id, mode, is_on_call, is_online}
@@ -50,11 +56,40 @@ class UserMatchScreen(Screen):
                 lbl_ph = Label(text="?", size_hint_x=None, width=dp(70))
                 row.add_widget(lbl_ph)
 
+            # Message read/unread summary (local-only).
+            sess_id = int(item.get("session_id") or 0)
+            last_mid = int(item.get("last_message_id") or 0)
+            last_sender = int(item.get("last_message_sender_id") or 0)
+            last_text = str(item.get("last_message_text") or "")
+            last_read = get_last_read_message_id(session_id=sess_id)
+            has_messages = last_mid > 0
+            is_unread = bool(has_messages and last_mid > last_read and last_sender and (my_id and last_sender != my_id))
+
             # Info
             info = BoxLayout(orientation="vertical")
-            name_lbl = Label(text=str(item.get("name") or "User"), halign="left", valign="middle", bold=True)
-            name_lbl.bind(size=name_lbl.setter('text_size'))
-            info.add_widget(name_lbl)
+            name_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(24))
+            name_lbl = Label(
+                text=str(item.get("name") or "User"),
+                halign="left",
+                valign="middle",
+                bold=bool(is_unread),
+                color=(1, 1, 1, 1),
+            )
+            name_lbl.bind(size=name_lbl.setter("text_size"))
+            name_row.add_widget(name_lbl)
+
+            dot = Label(
+                text="●" if has_messages else "",
+                size_hint_x=None,
+                width=dp(18),
+                halign="right",
+                valign="middle",
+                color=(1, 0.2, 0.2, 1) if is_unread else (0.6, 0.6, 0.6, 1),
+                font_size=sp(14),
+            )
+            dot.bind(size=dot.setter("text_size"))
+            name_row.add_widget(dot)
+            info.add_widget(name_row)
             
             # Status Notification
             status_text = ""
@@ -74,6 +109,22 @@ class UserMatchScreen(Screen):
             status_lbl.bind(size=status_lbl.setter('text_size'))
             info.add_widget(status_lbl)
 
+            # Last message preview (highlight unread).
+            preview = (last_text or "").strip()
+            if len(preview) > 40:
+                preview = preview[:40].rstrip() + "…"
+            if has_messages:
+                prev_lbl = Label(
+                    text=("[b]NEW:[/b] " if is_unread else "") + preview,
+                    markup=True,
+                    font_size=sp(11),
+                    color=(1, 1, 1, 1) if is_unread else (0.85, 0.85, 0.85, 1),
+                    halign="left",
+                    valign="middle",
+                )
+                prev_lbl.bind(size=prev_lbl.setter("text_size"))
+                info.add_widget(prev_lbl)
+
             last = str(item.get("last_seen") or "")
             if last:
                 last = last.replace("T", " ")[:16]
@@ -83,7 +134,6 @@ class UserMatchScreen(Screen):
             row.add_widget(info)
 
             # Chat Button
-            sess_id = int(item.get("session_id") or 0)
             mode = str(item.get("mode") or "text")
             
             btn = Button(text="Chat", size_hint_x=None, width=dp(80), background_color=(0.3, 0.6, 0.9, 1))

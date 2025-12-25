@@ -565,7 +565,7 @@
                     color: 1, 1, 1, 0.7
 
                 Button:
-                    text: "History"
+                    text: "Messages"
                     size_hint_y: None
                     height: dp(44)
                     background_color: (0.2, 0.5, 0.8, 1)
@@ -1028,6 +1028,7 @@
 
             # Messages
             ScrollView:
+                id: messages_scroll
                 do_scroll_x: False
                 canvas.before:
                     Color:
@@ -1697,11 +1698,11 @@
                     width: dp(80)
                     on_release: root.go_back()
                 Label:
-                    text: "Chat History"
+                text: "Messages"
                     bold: True
                     font_size: sp(18)
 
-            # History List
+            # Messages List
             ScrollView:
                 do_scroll_x: False
                 canvas.before:

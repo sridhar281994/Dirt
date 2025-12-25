@@ -11,6 +11,7 @@ _TOKEN: str = ""
 _USER: Dict[str, Any] = {}
 _REMEMBER_ME: bool = False
 _STORE: JsonStore | None = None
+_CHAT_READ_KEY = "chat_read"
 
 
 def _store_path() -> str:
@@ -130,6 +131,8 @@ def clear() -> None:
         store = _get_store()
         if store.exists("auth"):
             store.delete("auth")
+        if store.exists(_CHAT_READ_KEY):
+            store.delete(_CHAT_READ_KEY)
     except Exception:
         pass
 
@@ -140,4 +143,66 @@ def should_auto_login() -> bool:
     """
     _load_persisted()
     return bool(_REMEMBER_ME and _TOKEN and _USER)
+
+
+def get_last_read_message_id(*, session_id: int) -> int:
+    """
+    Local-only read tracking: last message id the user has seen for a session.
+
+    Backend does not store per-user read state, so we persist it on-device.
+    """
+    try:
+        sid = int(session_id or 0)
+    except Exception:
+        sid = 0
+    if sid <= 0:
+        return 0
+
+    try:
+        store = _get_store()
+        if not store.exists(_CHAT_READ_KEY):
+            return 0
+        data = store.get(_CHAT_READ_KEY) or {}
+        by_session = dict(data.get("by_session") or {})
+        v = by_session.get(str(sid))
+        return int(v or 0)
+    except Exception:
+        return 0
+
+
+def set_last_read_message_id(*, session_id: int, message_id: int) -> None:
+    try:
+        sid = int(session_id or 0)
+    except Exception:
+        sid = 0
+    try:
+        mid = int(message_id or 0)
+    except Exception:
+        mid = 0
+    if sid <= 0 or mid <= 0:
+        return
+
+    try:
+        store = _get_store()
+        by_session: Dict[str, Any] = {}
+        if store.exists(_CHAT_READ_KEY):
+            try:
+                data = store.get(_CHAT_READ_KEY) or {}
+                by_session = dict(data.get("by_session") or {})
+            except Exception:
+                by_session = {}
+
+        # Only move forward (never decrease).
+        prev = 0
+        try:
+            prev = int(by_session.get(str(sid)) or 0)
+        except Exception:
+            prev = 0
+        if mid <= prev:
+            return
+
+        by_session[str(sid)] = int(mid)
+        store.put(_CHAT_READ_KEY, by_session=by_session)
+    except Exception:
+        pass
 

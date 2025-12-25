@@ -135,10 +135,26 @@ class StartVideoDateScreen(Screen):
 
         try:
             from android.permissions import Permission, request_permissions
-            request_permissions(
-                [Permission.CAMERA, Permission.RECORD_AUDIO],
-                lambda *_: Clock.schedule_once(lambda __: self._start_camera(), 0),
-            )
+
+            def _cb(_permissions, _grants):
+                # Touch UI only on main thread.
+                def _apply(*_):
+                    try:
+                        self._refresh_android_permission_state()
+                        if self.camera_permission_granted and self.audio_permission_granted:
+                            self._start_camera()
+                        else:
+                            Logger.warning(
+                                "StartVideoDateScreen: permissions denied. camera=%s audio=%s",
+                                self.camera_permission_granted,
+                                self.audio_permission_granted,
+                            )
+                    except Exception:
+                        Logger.exception("StartVideoDateScreen: failed handling permission result")
+
+                Clock.schedule_once(_apply, 0)
+
+            request_permissions([Permission.CAMERA, Permission.RECORD_AUDIO], _cb)
         except Exception:
             Logger.exception("permission request failed")
 
