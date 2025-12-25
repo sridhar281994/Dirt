@@ -65,6 +65,66 @@ def _is_online(u: User, *, window_seconds: int = 120) -> bool:
         return False
 
 
+def _video_reset_state(db: Session, u: User) -> None:
+    """
+    Best-effort: clear any video matchmaking state for a user.
+    """
+    u.is_on_call = False
+    u.video_state = "idle"
+    u.video_state_updated_at = datetime.utcnow()
+    u.video_session_id = None
+    u.video_partner_id = None
+    db.add(u)
+
+
+def _video_set_searching(db: Session, u: User) -> None:
+    u.video_state = "searching"
+    u.video_state_updated_at = datetime.utcnow()
+    # searching is not "on call"
+    u.is_on_call = False
+    u.video_session_id = None
+    u.video_partner_id = None
+    db.add(u)
+
+
+def _video_set_in_call(db: Session, *, u: User, session_id: int, partner_id: int) -> None:
+    u.video_state = "in_call"
+    u.video_state_updated_at = datetime.utcnow()
+    u.is_on_call = True
+    u.video_session_id = int(session_id)
+    u.video_partner_id = int(partner_id)
+    db.add(u)
+
+
+def _video_build_payload(*, session: ChatSession, me: User, other: User) -> dict:
+    agora_app_id = os.getenv("AGORA_ID") or os.getenv("AGORA_APP_ID") or ""
+    channel = f"video_{session.id}"
+    return {
+        "ok": True,
+        "agora_app_id": agora_app_id,
+        "channel": channel,
+        "duration_seconds": 60,  # Standard duration
+        "session": {
+            "id": session.id,
+            "mode": session.mode,
+            "user_a_id": session.user_a_id,
+            "user_b_id": session.user_b_id,
+            "created_at": session.created_at.isoformat(),
+        },
+        "match": {
+            "id": other.id,
+            "username": other.username or "",
+            "name": other.name,
+            "country": other.country,
+            "gender": other.gender,
+            "description": other.description or "",
+            "image_url": other.image_url or "",
+            "is_online": _is_online(other),
+            "is_on_call": True,
+        },
+    }
+
+
 @router.get("/profiles/next")
 def get_next_profile(
     preference: str = "both",
@@ -177,6 +237,9 @@ def video_match(
 ):
     """
     Random video matchmaking.
+    IMPORTANT: Only matches users who are ALSO actively searching (video_state='searching').
+    This prevents creating sessions against random "online" users who didn't request video.
+
     - Paid users: respects preference (male|female|both).
     - Free users: forced to SAME gender.
     - Loop: excludes users matched in the last hour.
@@ -186,13 +249,29 @@ def video_match(
     if pref not in {"male", "female", "both"}:
         pref = "both"
 
+    # If this user was already matched (e.g. the OTHER side created the session),
+    # return the assigned session so both devices get the same session_id/channel.
+    try:
+        current_sid = int(getattr(user, "video_session_id", None) or 0)
+    except Exception:
+        current_sid = 0
+    if (getattr(user, "video_state", None) == "in_call") and current_sid > 0:
+        sess = db.query(ChatSession).filter(ChatSession.id == current_sid, ChatSession.mode == "video").first()
+        if sess:
+            other_id = sess.user_b_id if sess.user_a_id == user.id else sess.user_a_id
+            other = db.get(User, other_id)
+            if other:
+                return _video_build_payload(session=sess, me=user, other=other)
+        # Stale state: reset and continue as searching.
+        _video_reset_state(db, user)
+        db.commit()
+
+    # Mark user as actively searching (opt-in queue).
+    _video_set_searching(db, user)
+    db.commit()
+
     me = _norm_gender(user.gender)
     desired_gender: Optional[str] = None
-    
-    # Mark user as on call
-    user.is_on_call = True
-    db.add(user)
-    db.commit()
 
     if user.is_subscribed:
         # Paid: respect preference
@@ -221,12 +300,16 @@ def video_match(
     
     # --- Query ---
     online_threshold = datetime.utcnow() - timedelta(minutes=2)
+    # Consider only users who are actively searching recently.
+    searching_fresh = datetime.utcnow() - timedelta(seconds=35)
     
     def get_candidate(exclude_ids=None):
         q = db.query(User).filter(
             User.id != user.id,
             User.is_on_call == False,
-            User.last_active_at >= online_threshold
+            User.last_active_at >= online_threshold,
+            User.video_state == "searching",
+            User.video_state_updated_at >= searching_fresh,
         )
         if desired_gender:
             q = q.filter(User.gender == desired_gender)
@@ -245,48 +328,21 @@ def video_match(
     # If still no other, fail.
 
     if not other:
-        # cleanup own status if failed
-        user.is_on_call = False
-        db.add(user)
-        db.commit()
-        raise HTTPException(404, "No available users found.")
+        # No candidate currently searching. Keep caller in searching state.
+        # Return 200 so clients can poll/retry without treating it as an error.
+        return {"ok": True, "match": None}
     
-    # Mark other as on call
-    other.is_on_call = True
-    db.add(other)
-
     session = ChatSession(mode="video", user_a_id=user.id, user_b_id=other.id)
     db.add(session)
     db.commit()
     db.refresh(session)
 
-    agora_app_id = os.getenv("AGORA_ID") or os.getenv("AGORA_APP_ID") or ""
-    channel = f"video_{session.id}"
+    # Transition BOTH users into "in_call" state so the other device can poll and receive the same session.
+    _video_set_in_call(db, u=user, session_id=session.id, partner_id=other.id)
+    _video_set_in_call(db, u=other, session_id=session.id, partner_id=user.id)
+    db.commit()
 
-    return {
-        "ok": True,
-        "agora_app_id": agora_app_id,
-        "channel": channel,
-        "duration_seconds": 60, # Standard duration
-        "session": {
-            "id": session.id,
-            "mode": session.mode,
-            "user_a_id": session.user_a_id,
-            "user_b_id": session.user_b_id,
-            "created_at": session.created_at.isoformat(),
-        },
-        "match": {
-            "id": other.id,
-            "username": other.username or "",
-            "name": other.name,
-            "country": other.country,
-            "gender": other.gender,
-            "description": other.description or "",
-            "image_url": other.image_url or "",
-            "is_online": _is_online(other),
-            "is_on_call": True,
-        },
-    }
+    return _video_build_payload(session=session, me=user, other=other)
 
 
 @router.post("/video/end")
@@ -295,8 +351,9 @@ def end_video_call(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    # If the client knows the session_id, we can safely clear BOTH users'
-    # busy flags (prevents "stuck on call" users when skipping/ending).
+    # If the client knows the session_id, clear BOTH users' video state.
+    # This is safe because matching now requires explicit opt-in (video_state='searching'),
+    # so an ended user won't be re-matched unless they actively search again.
     try:
         sid = int(payload.session_id or 0)
     except Exception:
@@ -313,17 +370,23 @@ def end_video_call(
             .first()
         )
         if sess:
+            # Mark session as ended (best-effort; does not change chat message history).
+            try:
+                sess.ended_at = datetime.utcnow()
+                sess.ended_by_id = user.id
+                db.add(sess)
+            except Exception:
+                pass
+
             for uid in (sess.user_a_id, sess.user_b_id):
                 u = db.query(User).filter(User.id == uid).first()
                 if u:
-                    u.is_on_call = False
-                    db.add(u)
+                    _video_reset_state(db, u)
             db.commit()
             return {"ok": True}
 
     # Fallback (backwards compatible): clear only the current user.
-    user.is_on_call = False
-    db.add(user)
+    _video_reset_state(db, user)
     db.commit()
     return {"ok": True}
 

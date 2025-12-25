@@ -38,6 +38,17 @@ class User(Base):
     # Busy status
     is_on_call = Column(Boolean, default=False, nullable=False)
 
+    # Video matchmaking state:
+    # - idle: not searching, not on a call
+    # - searching: user is actively requesting /video/match (polling)
+    # - in_call: matched and should be in a video session
+    #
+    # This prevents matching random "online" users who didn't request a call.
+    video_state = Column(String, default="idle", nullable=False)
+    video_state_updated_at = Column(DateTime, nullable=True)
+    video_session_id = Column(Integer, nullable=True)
+    video_partner_id = Column(Integer, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -52,8 +63,13 @@ class ChatSession(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
+    # Video sessions can be ended explicitly.
+    ended_at = Column(DateTime, nullable=True)
+    ended_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
     user_a = relationship("User", foreign_keys=[user_a_id])
     user_b = relationship("User", foreign_keys=[user_b_id])
+    ended_by = relationship("User", foreign_keys=[ended_by_id])
 
 
 class ChatMessage(Base):

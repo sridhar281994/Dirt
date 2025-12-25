@@ -68,6 +68,24 @@ else:
                     conn.execute(text("ALTER TABLE users ADD COLUMN free_video_total_count INTEGER DEFAULT 0"))
                 if "free_video_opposite_count" not in existing:
                     conn.execute(text("ALTER TABLE users ADD COLUMN free_video_opposite_count INTEGER DEFAULT 0"))
+                if "is_on_call" not in existing:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN is_on_call BOOLEAN DEFAULT 0"))
+                if "video_state" not in existing:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN video_state TEXT DEFAULT 'idle'"))
+                if "video_state_updated_at" not in existing:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN video_state_updated_at DATETIME"))
+                if "video_session_id" not in existing:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN video_session_id INTEGER"))
+                if "video_partner_id" not in existing:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN video_partner_id INTEGER"))
+
+                # chat_sessions extra columns (best-effort)
+                sess_cols = conn.execute(text("PRAGMA table_info(chat_sessions)")).fetchall()
+                sess_existing = {str(r[1]) for r in sess_cols}
+                if "ended_at" not in sess_existing:
+                    conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN ended_at DATETIME"))
+                if "ended_by_id" not in sess_existing:
+                    conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN ended_by_id INTEGER"))
         except Exception:
             # Never block app startup for local dev migrations.
             pass

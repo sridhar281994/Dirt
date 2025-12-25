@@ -32,6 +32,10 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP WITHOUT TIME
 ALTER TABLE users ADD COLUMN IF NOT EXISTS free_video_total_count INTEGER;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS free_video_opposite_count INTEGER;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_on_call BOOLEAN;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS video_state VARCHAR;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS video_state_updated_at TIMESTAMP WITHOUT TIME ZONE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS video_session_id INTEGER;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS video_partner_id INTEGER;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITHOUT TIME ZONE;
 
 -- Apply defaults where missing
@@ -40,12 +44,14 @@ ALTER TABLE users ALTER COLUMN is_subscribed SET DEFAULT FALSE;
 ALTER TABLE users ALTER COLUMN free_video_total_count SET DEFAULT 0;
 ALTER TABLE users ALTER COLUMN free_video_opposite_count SET DEFAULT 0;
 ALTER TABLE users ALTER COLUMN is_on_call SET DEFAULT FALSE;
+ALTER TABLE users ALTER COLUMN video_state SET DEFAULT 'idle';
 ALTER TABLE users ALTER COLUMN created_at SET DEFAULT NOW();
 
 -- Backfill counters if NULL (older rows)
 UPDATE users SET free_video_total_count = 0 WHERE free_video_total_count IS NULL;
 UPDATE users SET free_video_opposite_count = 0 WHERE free_video_opposite_count IS NULL;
 UPDATE users SET is_on_call = FALSE WHERE is_on_call IS NULL;
+UPDATE users SET video_state = 'idle' WHERE video_state IS NULL;
 
 -- Uniqueness + lookup indexes
 CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email_unique ON users (email);
@@ -64,6 +70,8 @@ ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS mode VARCHAR;
 ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS user_a_id INTEGER;
 ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS user_b_id INTEGER;
 ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITHOUT TIME ZONE;
+ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS ended_at TIMESTAMP WITHOUT TIME ZONE;
+ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS ended_by_id INTEGER;
 ALTER TABLE chat_sessions ALTER COLUMN created_at SET DEFAULT NOW();
 
 CREATE INDEX IF NOT EXISTS ix_chat_sessions_user_a_id ON chat_sessions (user_a_id);
