@@ -13,8 +13,9 @@ package.domain = org.test
 source.dir = .
 
 # (str) Application entry point (relative to source.dir)
-# The repo root has a backend `main.py`; the mobile app lives in `frontend_app/main.py`.
-entrypoint = frontend_app/main.py
+# python-for-android requires a root-level `main.py` inside the packaged app directory.
+# Our repo root `main.py` routes to the Kivy app on Android and to the backend on server.
+entrypoint = main.py
 
 # (list) Source files to include (let empty to include all the files)
 source.include_exts = py,png,jpg,kv,atlas
