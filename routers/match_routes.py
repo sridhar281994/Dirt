@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import os
 import random
+import time
 from typing import Optional
 
 from sqlalchemy import or_, func
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import ChatMessage, ChatSession, Swipe, User
 from routers.auth import get_current_user
+from utils.agora_rtc_token import build_rtc_token_from_env
 
 
 router = APIRouter(tags=["match"])
@@ -35,6 +37,15 @@ class VideoMatchIn(BaseModel):
 class VideoEndIn(BaseModel):
     # Optional: if provided, clear BOTH participants' busy status.
     session_id: int | None = None
+
+
+class VideoTokenOut(BaseModel):
+    ok: bool = True
+    agora_app_id: str
+    channel: str
+    agora_uid: int
+    agora_token: str
+    agora_token_expire_ts: int
 
 
 class MessageIn(BaseModel):
@@ -99,10 +110,26 @@ def _video_set_in_call(db: Session, *, u: User, session_id: int, partner_id: int
 def _video_build_payload(*, session: ChatSession, me: User, other: User) -> dict:
     agora_app_id = os.getenv("AGORA_ID") or os.getenv("AGORA_APP_ID") or ""
     channel = f"video_{session.id}"
+    try:
+        agora_uid = int(getattr(me, "id", 0) or 0)
+    except Exception:
+        agora_uid = 0
+
+    # Token is required when Agora project has certificate enabled.
+    # If credentials are missing, token will be "" and client may still join
+    # only if the Agora project is configured for "App ID" (no token).
+    try:
+        ttl = int(os.getenv("AGORA_TOKEN_TTL_SECONDS") or 3600)
+    except Exception:
+        ttl = 3600
+    token, expire_ts = build_rtc_token_from_env(channel_name=channel, uid=agora_uid, ttl_seconds=ttl)
     return {
         "ok": True,
         "agora_app_id": agora_app_id,
         "channel": channel,
+        "agora_uid": agora_uid,
+        "agora_token": token,
+        "agora_token_expire_ts": int(expire_ts or (int(time.time()) + ttl)),
         "duration_seconds": 60,  # Standard duration
         "session": {
             "id": session.id,
@@ -343,6 +370,50 @@ def video_match(
     db.commit()
 
     return _video_build_payload(session=session, me=user, other=other)
+
+
+@router.get("/video/token", response_model=VideoTokenOut)
+def video_token(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Return a fresh Agora RTC token for an existing video session.
+
+    Useful if the client needs to re-join the channel (app resumed, token expired, etc.).
+    """
+    sess = (
+        db.query(ChatSession)
+        .filter(
+            ChatSession.id == session_id,
+            ChatSession.mode == "video",
+            or_(ChatSession.user_a_id == user.id, ChatSession.user_b_id == user.id),
+        )
+        .first()
+    )
+    if not sess:
+        raise HTTPException(404, "Session not found")
+
+    agora_app_id = os.getenv("AGORA_ID") or os.getenv("AGORA_APP_ID") or ""
+    channel = f"video_{sess.id}"
+    try:
+        agora_uid = int(getattr(user, "id", 0) or 0)
+    except Exception:
+        agora_uid = 0
+    try:
+        ttl = int(os.getenv("AGORA_TOKEN_TTL_SECONDS") or 3600)
+    except Exception:
+        ttl = 3600
+    token, expire_ts = build_rtc_token_from_env(channel_name=channel, uid=agora_uid, ttl_seconds=ttl)
+    return {
+        "ok": True,
+        "agora_app_id": agora_app_id,
+        "channel": channel,
+        "agora_uid": agora_uid,
+        "agora_token": token,
+        "agora_token_expire_ts": int(expire_ts or (int(time.time()) + ttl)),
+    }
 
 
 @router.post("/video/end")
