@@ -81,7 +81,10 @@ fullscreen = 0
 #android.presplash_color = #FFFFFF
 
 # (list) Permissions
-android.permissions = INTERNET,CAMERA,RECORD_AUDIO
+android.permissions = INTERNET,CAMERA,RECORD_AUDIO,MODIFY_AUDIO_SETTINGS,ACCESS_NETWORK_STATE
+
+# Agora RTC SDK (Android)
+android.gradle_dependencies = io.agora.rtc:full-sdk:4.5.0
 
 # (int) Target Android API, should be as high as possible.
 android.api = 31

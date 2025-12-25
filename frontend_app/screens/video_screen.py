@@ -13,6 +13,7 @@ from kivy.logger import Logger
 
 from frontend_app.utils.api import ApiError, api_video_match, api_video_end, api_get_messages, api_post_message
 from frontend_app.utils.android_camera import get_android_camera_ids
+from frontend_app.utils.agora_android import AgoraAndroidClient, AgoraJoinInfo
 from frontend_app.utils.storage import get_user
 
 
@@ -20,6 +21,12 @@ class VideoScreen(Screen):
     session_id = NumericProperty(0)
     channel = StringProperty("")
     agora_app_id = StringProperty("")
+    agora_token = StringProperty("")
+    agora_uid = NumericProperty(0)
+    agora_token_expire_ts = NumericProperty(0)
+    agora_joined = BooleanProperty(False)
+    agora_remote_uid = NumericProperty(0)
+    agora_remote_connected = BooleanProperty(False)
 
     match_name = StringProperty("")
     match_username = StringProperty("")
@@ -70,6 +77,12 @@ class VideoScreen(Screen):
         self._camera_start_focus_retries = 0
         self._camera_health_retries = 0
         self._init_camera_ids()
+        self._agora = AgoraAndroidClient(
+            on_join_success=self._on_agora_join_success,
+            on_user_joined=self._on_agora_user_joined,
+            on_user_offline=self._on_agora_user_offline,
+            on_end_requested=lambda: self.end_call(),
+        )
 
     def _init_camera_ids(self) -> None:
         """
@@ -88,6 +101,113 @@ class VideoScreen(Screen):
             self.front_camera_index = 1
             self.active_camera_index = 0
 
+    # ---------------------------------------------------------------------
+    # Agora (Android)
+    # ---------------------------------------------------------------------
+
+    def _on_agora_join_success(self, channel: str, uid: int) -> None:
+        try:
+            self.agora_joined = True
+            self.agora_remote_connected = False
+            self.agora_remote_uid = 0
+            # Still show loader until the remote user actually joins.
+            self._set_loading(True)
+        except Exception:
+            pass
+
+    def _on_agora_user_joined(self, uid: int) -> None:
+        try:
+            self.agora_remote_uid = int(uid or 0)
+            self.agora_remote_connected = True
+            self.is_remote_connected = True
+            self._set_loading(False)
+        except Exception:
+            pass
+        try:
+            if self._agora:
+                self._agora.on_remote_user_joined(int(uid or 0))
+        except Exception:
+            pass
+
+    def _on_agora_user_offline(self, uid: int) -> None:
+        try:
+            u = int(uid or 0)
+        except Exception:
+            u = 0
+        if u and int(self.agora_remote_uid or 0) == u:
+            self.agora_remote_connected = False
+            self.agora_remote_uid = 0
+            self.is_remote_connected = False
+            # Remote left; show loader again so user understands it's waiting.
+            self._set_loading(True)
+
+    def _agora_should_use(self) -> bool:
+        return bool(
+            platform == "android"
+            and self.session_id > 0
+            and (self.agora_app_id or "").strip()
+            and (self.channel or "").strip()
+        )
+
+    def _agora_join_if_ready(self) -> None:
+        if not self._agora_should_use():
+            return
+        if not (bool(self.camera_permission_granted) and bool(self.audio_permission_granted)):
+            return
+        if not self._agora:
+            return
+        # Stop Kivy camera to avoid conflicts with Agora's camera capture.
+        try:
+            self._stop_camera()
+        except Exception:
+            pass
+
+        try:
+            self.camera_should_play = False
+        except Exception:
+            pass
+
+        try:
+            uid = int(self.agora_uid or 0)
+        except Exception:
+            uid = 0
+        if uid <= 0:
+            # If backend didn't provide uid, fall back to 0 (Agora assigns one).
+            uid = 0
+
+        try:
+            self._agora.set_last_local_uid(uid)
+        except Exception:
+            pass
+
+        # Join (or re-join) channel.
+        self._set_loading(True)
+        ok = self._agora.join(
+            info=AgoraJoinInfo(
+                app_id=str(self.agora_app_id or ""),
+                channel=str(self.channel or ""),
+                token=str(self.agora_token or ""),
+                uid=int(uid),
+            )
+        )
+        if not ok:
+            # If Agora join fails, keep UI usable (show placeholder) and don't crash.
+            self.agora_joined = False
+            self.agora_remote_connected = False
+            self._set_loading(False)
+
+    def _agora_leave(self, *, destroy: bool = False) -> None:
+        try:
+            if self._agora:
+                self._agora.leave()
+                if destroy:
+                    self._agora.destroy()
+        except Exception:
+            pass
+        self.agora_joined = False
+        self.agora_remote_connected = False
+        self.agora_remote_uid = 0
+
     def on_pre_enter(self, *args):
         # Refresh permission flags whenever screen is about to show.
         self._init_camera_ids()
@@ -100,9 +220,12 @@ class VideoScreen(Screen):
         self.controls_visible = True
         self._sync_remote_loading_state()
         self._start_chat_polling()
+        # If we already have a match/session, join Agora immediately.
+        Clock.schedule_once(lambda *_: self._agora_join_if_ready(), 0.05)
 
     def on_leave(self, *args):
         """Stop camera when leaving the screen."""
+        self._agora_leave(destroy=True)
         self._stop_camera()
         self._cancel_camera_monitors()
         self._set_loading(False)
@@ -346,7 +469,11 @@ class VideoScreen(Screen):
 
         # If already granted (or not Android), just start.
         if bool(self.camera_permission_granted) and bool(self.audio_permission_granted):
-            self._start_camera()
+            # If a call is active, prefer Agora capture (don't start Kivy camera).
+            if self._agora_should_use():
+                Clock.schedule_once(lambda *_: self._agora_join_if_ready(), 0)
+            else:
+                self._start_camera()
             return
 
         if platform != "android":
@@ -365,7 +492,10 @@ class VideoScreen(Screen):
                         # Refresh from system, don't trust raw grants format.
                         self._refresh_android_permission_state()
                         if self.camera_permission_granted and self.audio_permission_granted:
-                            self._start_camera()
+                            if self._agora_should_use():
+                                Clock.schedule_once(lambda *_: self._agora_join_if_ready(), 0)
+                            else:
+                                self._start_camera()
                         else:
                             Logger.warning(
                                 "VideoScreen: permissions denied. camera=%s audio=%s",
@@ -408,6 +538,9 @@ class VideoScreen(Screen):
                     self.session_id = 0
                     self.channel = ""
                     self.agora_app_id = ""
+                    self.agora_token = ""
+                    self.agora_uid = 0
+                    self.agora_token_expire_ts = 0
                     self.match_name = ""
                     self.match_username = ""
                     self.match_country = ""
@@ -447,10 +580,22 @@ class VideoScreen(Screen):
             new_sid = 0
         if old_sid != new_sid:
             self._clear_chat_overlay()
+            # Leaving old channel before switching to a new match.
+            if old_sid > 0:
+                self._agora_leave(destroy=False)
 
         self.session_id = int(sess.get("id") or 0)
         self.channel = str(payload.get("channel") or "")
         self.agora_app_id = str(payload.get("agora_app_id") or "")
+        try:
+            self.agora_uid = int(payload.get("agora_uid") or 0)
+        except Exception:
+            self.agora_uid = 0
+        self.agora_token = str(payload.get("agora_token") or "")
+        try:
+            self.agora_token_expire_ts = int(payload.get("agora_token_expire_ts") or 0)
+        except Exception:
+            self.agora_token_expire_ts = 0
 
         self.match_name = str(match.get("name") or "")
         self.match_username = str(match.get("username") or "")
@@ -471,6 +616,7 @@ class VideoScreen(Screen):
         self.remaining_seconds = duration
         self._start_timer()
         self._ensure_android_av_permissions()
+        Clock.schedule_once(lambda *_: self._agora_join_if_ready(), 0.05)
         self._sync_remote_loading_state()
 
     def next_call(self) -> None:
@@ -628,6 +774,7 @@ class VideoScreen(Screen):
     def go_back(self):
         self._stop_timer()
         self._set_loading(False)
+        self._agora_leave(destroy=True)
         
         # End call in backend to clear busy status
         sid = int(self.session_id or 0)
@@ -646,12 +793,16 @@ class VideoScreen(Screen):
         End/disconnect the current call WITHOUT leaving the video screen.
         """
         self._stop_timer()
+        self._agora_leave(destroy=True)
         sid = int(self.session_id or 0)
 
         # Clear session + remote UI state (keep local preview running).
         self.session_id = 0
         self.channel = ""
         self.agora_app_id = ""
+        self.agora_token = ""
+        self.agora_uid = 0
+        self.agora_token_expire_ts = 0
         self.match_name = ""
         self.match_username = ""
         self.match_country = ""
@@ -677,14 +828,22 @@ class VideoScreen(Screen):
         """
         Toggle local microphone mute (Android).
 
-        Note: This does not implement a full WebRTC/Agora pipeline; it only mutes
-        the device mic input using Android's AudioManager so the UI has a working
-        mute switch.
+        If an Agora RTC session is active, this mutes the local audio stream in
+        the Agora engine. Otherwise, it falls back to Android's AudioManager
+        microphone mute (best-effort).
         """
         self.is_muted = not bool(self.is_muted)
 
         if platform != "android":
             return
+
+        # If Agora is active, mute within the RTC engine.
+        try:
+            if self._agora and self._agora.is_joined:
+                self._agora.mute_local_audio(bool(self.is_muted))
+                return
+        except Exception:
+            pass
 
         try:
             from jnius import autoclass, cast  # type: ignore
@@ -700,6 +859,15 @@ class VideoScreen(Screen):
 
     def toggle_camera(self) -> None:
         """Switch between front and back camera."""
+        # If Agora is active, switch camera in the RTC engine.
+        if platform == "android":
+            try:
+                if self._agora and self._agora.is_joined:
+                    self._agora.switch_camera()
+                    return
+            except Exception:
+                pass
+
         camera = self.ids.get("local_camera")
         if not camera:
             return
@@ -753,9 +921,12 @@ class VideoScreen(Screen):
         """
         Decide whether to show loader based on match/online state.
         """
-        connected = bool(self.session_id > 0 and self.match_username and self.match_is_online)
-        self.is_remote_connected = connected
-        self._set_loading(not connected and bool(self.session_id > 0))
+        if self._agora_should_use():
+            connected = bool(self.agora_remote_connected)
+        else:
+            connected = bool(self.session_id > 0 and self.match_username and self.match_is_online)
+        self.is_remote_connected = bool(connected)
+        self._set_loading(not bool(connected) and bool(self.session_id > 0))
 
     def _set_loading(self, should_show: bool) -> None:
         should_show = bool(should_show)
