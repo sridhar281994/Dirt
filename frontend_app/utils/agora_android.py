@@ -253,6 +253,17 @@ class AgoraAndroidClient:
             try:
                 # Fullscreen remote
                 remote_view = RtcEngine.CreateRendererView(self._activity)
+                # Kivy/SDL2 uses a SurfaceView; ensure Agora's surface is not hidden behind it.
+                # This is critical to avoid only seeing the Kivy placeholder (avatar initials).
+                try:
+                    remote_view.setZOrderMediaOverlay(True)
+                except Exception:
+                    pass
+                try:
+                    # Some devices need OnTop for SurfaceView ordering.
+                    remote_view.setZOrderOnTop(True)
+                except Exception:
+                    pass
                 params = FrameLayoutLayoutParams(
                     int(FrameLayoutLayoutParams.MATCH_PARENT),
                     int(FrameLayoutLayoutParams.MATCH_PARENT),

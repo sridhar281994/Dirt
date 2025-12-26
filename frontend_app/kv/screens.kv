@@ -1169,6 +1169,10 @@
                 fit_mode: "contain"
                 size_hint: 1, 1
                 pos_hint: {"center_x": 0.5, "center_y": 0.5}
+                # When using Agora, the real video is rendered by a native SurfaceView overlay.
+                # Hide the placeholder avatar (initials) so it doesn't look like "only letters".
+                opacity: 0 if root.use_agora else 1
+                disabled: True if root.use_agora else False
 
             # Loading "GIF" (animated spinner) shown until connected to an online match.
             Scatter:

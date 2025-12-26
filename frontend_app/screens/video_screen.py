@@ -59,6 +59,9 @@ class VideoScreen(Screen):
     # Remote connection/loading state
     is_remote_connected = BooleanProperty(False)
     show_loading = BooleanProperty(False)
+    # True when we expect to render the opponent stream via Agora's native overlay.
+    # When this is True, the Kivy placeholder avatar (initials) should be hidden.
+    use_agora = BooleanProperty(False)
     
     _ticker = None
     _chat_ticker = None
@@ -83,6 +86,21 @@ class VideoScreen(Screen):
             on_user_offline=self._on_agora_user_offline,
             on_end_requested=lambda: self.end_call(),
         )
+        self._refresh_use_agora()
+
+    def _refresh_use_agora(self) -> None:
+        """
+        Sync `use_agora` with the current session/join configuration.
+        """
+        try:
+            self.use_agora = bool(
+                platform == "android"
+                and int(self.session_id or 0) > 0
+                and bool((self.agora_app_id or "").strip())
+                and bool((self.channel or "").strip())
+            )
+        except Exception:
+            self.use_agora = False
 
     def _init_camera_ids(self) -> None:
         """
@@ -112,6 +130,7 @@ class VideoScreen(Screen):
             self.agora_remote_uid = 0
             # Still show loader until the remote user actually joins.
             self._set_loading(True)
+            self._refresh_use_agora()
         except Exception:
             pass
 
@@ -121,6 +140,7 @@ class VideoScreen(Screen):
             self.agora_remote_connected = True
             self.is_remote_connected = True
             self._set_loading(False)
+            self._refresh_use_agora()
         except Exception:
             pass
         try:
@@ -140,6 +160,7 @@ class VideoScreen(Screen):
             self.is_remote_connected = False
             # Remote left; show loader again so user understands it's waiting.
             self._set_loading(True)
+            self._refresh_use_agora()
 
     def _agora_should_use(self) -> bool:
         return bool(
@@ -151,6 +172,7 @@ class VideoScreen(Screen):
 
     def _agora_join_if_ready(self) -> None:
         if not self._agora_should_use():
+            self._refresh_use_agora()
             return
         if not (bool(self.camera_permission_granted) and bool(self.audio_permission_granted)):
             return
@@ -181,6 +203,7 @@ class VideoScreen(Screen):
             pass
 
         # Join (or re-join) channel.
+        self._refresh_use_agora()
         self._set_loading(True)
         ok = self._agora.join(
             info=AgoraJoinInfo(
@@ -195,6 +218,7 @@ class VideoScreen(Screen):
             self.agora_joined = False
             self.agora_remote_connected = False
             self._set_loading(False)
+            self._refresh_use_agora()
 
     def _agora_leave(self, *, destroy: bool = False) -> None:
         try:
@@ -207,6 +231,7 @@ class VideoScreen(Screen):
         self.agora_joined = False
         self.agora_remote_connected = False
         self.agora_remote_uid = 0
+        self._refresh_use_agora()
 
     def on_pre_enter(self, *args):
         # Refresh permission flags whenever screen is about to show.
@@ -218,6 +243,7 @@ class VideoScreen(Screen):
         self._init_local_preview_transform()
         self._ensure_android_av_permissions()
         self.controls_visible = True
+        self._refresh_use_agora()
         self._sync_remote_loading_state()
         self._start_chat_polling()
         # If we already have a match/session, join Agora immediately.
@@ -230,6 +256,7 @@ class VideoScreen(Screen):
         self._cancel_camera_monitors()
         self._set_loading(False)
         self._stop_chat_polling()
+        self._refresh_use_agora()
 
     def _init_local_preview_transform(self) -> None:
         """
@@ -552,6 +579,7 @@ class VideoScreen(Screen):
                     self._stop_timer()
                     self.is_remote_connected = False
                     self._set_loading(False)
+                    self._refresh_use_agora()
 
                 Clock.schedule_once(apply_err, 0)
 
@@ -608,12 +636,13 @@ class VideoScreen(Screen):
         if raw_img.strip():
             self.match_image_url = self._normalize_image_url(raw_img)
         else:
-            self.match_image_url = self._fallback_avatar_url(
-                self.match_name or self.match_username or "User"
-            )
+            # Do NOT show initials ("two letters") placeholder in video calls.
+            # If the user has no profile photo, keep this empty and rely on the live stream.
+            self.match_image_url = ""
 
         self.duration_seconds = duration
         self.remaining_seconds = duration
+        self._refresh_use_agora()
         self._start_timer()
         self._ensure_android_av_permissions()
         Clock.schedule_once(lambda *_: self._agora_join_if_ready(), 0.05)
