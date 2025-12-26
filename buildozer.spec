@@ -49,8 +49,16 @@ version = 0.1
 # Keep requirements minimal to reduce APK/AAB size.
 requirements = python3,kivy,pillow,requests,pyjnius
 
-# Extra python-for-android flags (helps reduce binary size).
-p4a.extra_args = --strip --optimize=2
+# Extra python-for-android flags.
+#
+# NOTE: Newer python-for-android versions no longer accept `--strip` / `--optimize`
+# on the `apk` step (Buildozer passes `p4a.extra_args` to multiple toolchain
+# commands), causing CI builds to fail with:
+#   toolchain.py: error: unrecognized arguments: --strip --optimize=2
+#
+# If you want size optimizations back, we can re-add them using the current
+# supported p4a/buildozer options for your pinned p4a version.
+#p4a.extra_args = --strip --optimize=2
 
 # (str) Custom source folders for requirements
 # Sets custom source for any requirements with recipes
