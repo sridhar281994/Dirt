@@ -98,8 +98,12 @@ fullscreen = 0
 android.permissions = INTERNET,CAMERA,RECORD_AUDIO,MODIFY_AUDIO_SETTINGS,ACCESS_NETWORK_STATE
 
 # Agora RTC SDK (Android)
-# Use the smaller rtc-sdk artifact (full-sdk includes extra modules we don't use).
-android.gradle_dependencies = io.agora.rtc:rtc-sdk:4.5.0
+# NOTE: Agora 4.5.0 publishes `full-sdk` on Maven Central; `rtc-sdk` is not
+# available there, which caused CI Gradle resolution failures.
+android.gradle_dependencies = io.agora.rtc:full-sdk:4.5.0
+
+# Gradle repositories required to resolve Agora artifacts.
+android.add_gradle_repositories = mavenCentral()
 
 # Prefer AAB for smaller Play distribution (still can build APK for debugging).
 android.release_artifact = aab
