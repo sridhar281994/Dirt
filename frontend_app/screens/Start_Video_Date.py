@@ -51,6 +51,9 @@ class StartVideoDateScreen(Screen):
         super().__init__(**kwargs)
         self._init_camera_ids()
         self._init_local_preview_transform()
+        # Soft keyboard behavior can affect overlay positioning on Android.
+        # We'll temporarily override per-screen to avoid cumulative upward drift.
+        self._prev_softinput_mode: str | None = None
 
     def _init_camera_ids(self) -> None:
         try:
@@ -96,6 +99,17 @@ class StartVideoDateScreen(Screen):
         self._refresh_android_permission_state()
 
     def on_enter(self, *args):
+        # On Android, Window.softinput_mode="below_target" can repeatedly shift the
+        # whole screen upward when we frequently update the chat widget tree.
+        # Use "pan" here to keep overlays stable (no cumulative offset).
+        if platform == "android":
+            try:
+                from kivy.core.window import Window
+
+                self._prev_softinput_mode = getattr(Window, "softinput_mode", None)
+                Window.softinput_mode = "pan"
+            except Exception:
+                self._prev_softinput_mode = None
         self._ensure_android_av_permissions()
         self._start_chat_polling()
         self.retry()
@@ -107,6 +121,15 @@ class StartVideoDateScreen(Screen):
         self._stop_chat_polling()
         # Reset ephemeral in-call state for next entry.
         self._reset_session_chat()
+        # Restore global keyboard handling.
+        if platform == "android" and self._prev_softinput_mode:
+            try:
+                from kivy.core.window import Window
+
+                Window.softinput_mode = self._prev_softinput_mode
+            except Exception:
+                pass
+        self._prev_softinput_mode = None
 
     def _refresh_android_permission_state(self) -> None:
         if platform != "android":
