@@ -315,7 +315,9 @@ class StartVideoDateScreen(Screen):
                     self.manager.current = "video"
 
                 Clock.schedule_once(lambda *_: apply(), 0)
-            except ApiError:
+            except ApiError as exc:
+                msg = str(exc) if exc is not None else ""
+
                 def apply_err():
                     self._inflight = False
                     # If NEXT was requested while inflight, try again quickly.
@@ -323,6 +325,16 @@ class StartVideoDateScreen(Screen):
                         self._pending_next = False
                         Clock.schedule_once(lambda *_: self._request_match_once(), 0)
                         return
+                    # Show the error to the user (otherwise it looks like "video not working").
+                    self._stop_spinner()
+                    self.show_loading = False
+                    self.status_text = msg or "Video matchmaking failed. Tap Retry."
+
+                    # If this is a server configuration issue, don't spam retries.
+                    upper = (msg or "").upper()
+                    if "AGORA" in upper or "NOT CONFIGURED" in upper or "MISCONFIG" in upper:
+                        return
+
                     self._schedule_retry(3.0)
 
                 Clock.schedule_once(lambda *_: apply_err(), 0)

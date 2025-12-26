@@ -1400,7 +1400,9 @@
             size: dp(120), dp(160)
             # Keep it at bottom-right, just above the controls overlay.
             pos: root.width - self.width - dp(10), controls_overlay.height + dp(10)
-            opacity: 1
+            # When using Agora, local preview is rendered by the native overlay.
+            opacity: 0 if root.use_agora else 1
+            disabled: True if root.use_agora else False
             
             canvas.before:
                 Color:

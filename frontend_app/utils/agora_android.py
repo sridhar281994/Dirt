@@ -79,6 +79,62 @@ class AgoraAndroidClient:
             except Exception:
                 Logger.exception("AgoraAndroidClient: failed running UI operation")
 
+    def _create_video_view(self):
+        """
+        Create an Android View suitable for Agora video rendering.
+
+        Why:
+        - Kivy (SDL2) uses a SurfaceView; mixing multiple SurfaceViews often causes
+          black screens or Z-order issues on many OEM devices.
+        - A TextureView participates in the normal view hierarchy, making it much
+          more reliable for "WhatsApp-like" call UI overlays.
+        """
+        if platform != "android":
+            return None
+        try:
+            from jnius import autoclass  # type: ignore
+
+            TextureView = autoclass("android.view.TextureView")
+            tv = TextureView(self._activity)
+            # Ensure Kivy UI remains interactive underneath the video layer.
+            # (A full-screen native view on top can otherwise swallow touches.)
+            try:
+                tv.setClickable(False)
+            except Exception:
+                pass
+            try:
+                tv.setFocusable(False)
+            except Exception:
+                pass
+            try:
+                tv.setFocusableInTouchMode(False)
+            except Exception:
+                pass
+            try:
+                # Keep it non-opaque so overlays can blend if needed.
+                tv.setOpaque(False)
+            except Exception:
+                pass
+            return tv
+        except Exception:
+            # Fallback to Agora's default (SurfaceView) renderer.
+            try:
+                from jnius import autoclass  # type: ignore
+
+                RtcEngine = autoclass("io.agora.rtc2.RtcEngine")
+                sv = RtcEngine.CreateRendererView(self._activity)
+                try:
+                    sv.setClickable(False)
+                except Exception:
+                    pass
+                try:
+                    sv.setFocusable(False)
+                except Exception:
+                    pass
+                return sv
+            except Exception:
+                return None
+
     def ensure_engine(self, *, app_id: str) -> bool:
         if platform != "android":
             return False
@@ -160,12 +216,43 @@ class AgoraAndroidClient:
                 engine.setChannelProfile(int(Constants.CHANNEL_PROFILE_COMMUNICATION))
             except Exception:
                 pass
+            # WhatsApp-like defaults: speakerphone for video calls.
+            try:
+                engine.setDefaultAudioRoutetoSpeakerphone(True)
+            except Exception:
+                pass
+            try:
+                engine.setEnableSpeakerphone(True)
+            except Exception:
+                pass
             try:
                 engine.enableVideo()
             except Exception:
                 pass
             try:
                 engine.enableAudio()
+            except Exception:
+                pass
+            # Best-effort encoder config (portrait-friendly baseline).
+            try:
+                VideoEncoderConfiguration = autoclass("io.agora.rtc2.video.VideoEncoderConfiguration")
+                VideoDimensions = autoclass("io.agora.rtc2.video.VideoEncoderConfiguration$VideoDimensions")
+                # 640x360 is a conservative default for mobile RTC.
+                dims = VideoDimensions(int(640), int(360))
+                cfg = VideoEncoderConfiguration()
+                try:
+                    cfg.dimensions = dims
+                except Exception:
+                    pass
+                try:
+                    cfg.frameRate = int(VideoEncoderConfiguration.FRAME_RATE.FRAME_RATE_FPS_15)
+                except Exception:
+                    pass
+                try:
+                    cfg.bitrate = int(VideoEncoderConfiguration.STANDARD_BITRATE)
+                except Exception:
+                    pass
+                engine.setVideoEncoderConfiguration(cfg)
             except Exception:
                 pass
 
@@ -252,24 +339,19 @@ class AgoraAndroidClient:
         def _add():
             try:
                 # Fullscreen remote
-                remote_view = RtcEngine.CreateRendererView(self._activity)
-                # Kivy/SDL2 uses a SurfaceView; ensure Agora's surface is not hidden behind it.
-                # This is critical to avoid only seeing the Kivy placeholder (avatar initials).
-                try:
-                    remote_view.setZOrderMediaOverlay(True)
-                except Exception:
-                    pass
-                try:
-                    # Some devices need OnTop for SurfaceView ordering.
-                    remote_view.setZOrderOnTop(True)
-                except Exception:
-                    pass
+                remote_view = self._create_video_view()
+                if remote_view is None:
+                    return
                 params = FrameLayoutLayoutParams(
                     int(FrameLayoutLayoutParams.MATCH_PARENT),
                     int(FrameLayoutLayoutParams.MATCH_PARENT),
                 )
                 params.gravity = int(Gravity.CENTER)
                 container.addView(remote_view, params)
+                try:
+                    remote_view.bringToFront()
+                except Exception:
+                    pass
                 if int(uid or 0) > 0:
                     self._engine.setupRemoteVideo(
                         VideoCanvas(remote_view, int(VideoCanvas.RENDER_MODE_HIDDEN), int(uid))
@@ -300,11 +382,9 @@ class AgoraAndroidClient:
 
         def _add():
             try:
-                local_view = RtcEngine.CreateRendererView(self._activity)
-                try:
-                    local_view.setZOrderMediaOverlay(True)
-                except Exception:
-                    pass
+                local_view = self._create_video_view()
+                if local_view is None:
+                    return
 
                 # Bottom-right PiP
                 w = int(360)  # px; simple default (Kivy UI already scales)
@@ -314,6 +394,10 @@ class AgoraAndroidClient:
                 params.bottomMargin = int(30)
                 params.rightMargin = int(30)
                 container.addView(local_view, params)
+                try:
+                    local_view.bringToFront()
+                except Exception:
+                    pass
                 self._engine.setupLocalVideo(VideoCanvas(local_view, int(VideoCanvas.RENDER_MODE_HIDDEN), int(uid)))
                 self._local_view = local_view
             except Exception:
@@ -437,6 +521,12 @@ class AgoraAndroidClient:
                 ret = self._engine.joinChannel(token, channel, "", uid, opts)
 
             Logger.info("AgoraAndroidClient: joinChannel ret=%s channel=%s uid=%s", ret, channel, uid)
+            try:
+                # Agora returns 0 on success; negative values indicate failure.
+                if ret is not None and int(ret) < 0:
+                    return False
+            except Exception:
+                pass
 
             try:
                 self._engine.startPreview()
@@ -497,6 +587,10 @@ class AgoraAndroidClient:
             return
         try:
             self._engine.leaveChannel()
+        except Exception:
+            pass
+        try:
+            self._engine.stopPreview()
         except Exception:
             pass
         self._joined = False

@@ -109,6 +109,15 @@ def _video_set_in_call(db: Session, *, u: User, session_id: int, partner_id: int
 
 def _video_build_payload(*, session: ChatSession, me: User, other: User) -> dict:
     agora_app_id = os.getenv("AGORA_ID") or os.getenv("AGORA_APP_ID") or ""
+    agora_app_id = (agora_app_id or "").strip()
+    if not agora_app_id:
+        # Without an App ID, clients cannot join an Agora RTC channel at all.
+        # Fail fast with a clear error instead of returning a "successful match"
+        # that results in a black screen on the client.
+        raise HTTPException(503, "Video calling is not configured (AGORA_APP_ID missing).")
+    # Agora App IDs are typically 32 chars; catch common misconfig early.
+    if len(agora_app_id) != 32:
+        raise HTTPException(503, "Video calling is misconfigured (invalid AGORA_APP_ID).")
     channel = f"video_{session.id}"
     try:
         agora_uid = int(getattr(me, "id", 0) or 0)
@@ -396,6 +405,11 @@ def video_token(
         raise HTTPException(404, "Session not found")
 
     agora_app_id = os.getenv("AGORA_ID") or os.getenv("AGORA_APP_ID") or ""
+    agora_app_id = (agora_app_id or "").strip()
+    if not agora_app_id:
+        raise HTTPException(503, "Video calling is not configured (AGORA_APP_ID missing).")
+    if len(agora_app_id) != 32:
+        raise HTTPException(503, "Video calling is misconfigured (invalid AGORA_APP_ID).")
     channel = f"video_{sess.id}"
     try:
         agora_uid = int(getattr(user, "id", 0) or 0)
