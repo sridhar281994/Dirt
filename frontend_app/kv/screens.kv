@@ -1510,7 +1510,10 @@
 
             Image:
                 source: "atlas://data/images/defaulttheme/spinner"
-                size: self.size
+                # IMPORTANT: bind to parent, not to self (self-referential bindings
+                # can trigger repeated relayout/Clock iteration warnings on some devices)
+                size: self.parent.size
+                pos: 0, 0
 
         Label:
             text: root.status_text
