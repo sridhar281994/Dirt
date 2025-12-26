@@ -47,7 +47,7 @@ class EditProfileScreen(Screen):
         # Initialize billing if needed
         if not self.billing_manager:
             self.billing_manager = BillingManager(self._on_billing_success)
-            if platform == "android":
+            if platform == "android" and getattr(self.billing_manager, "available", False):
                 self.billing_manager.query_sku_details(list(SKU_MAPPING.values()))
 
     def go_back(self):
@@ -219,6 +219,9 @@ class EditProfileScreen(Screen):
             return
 
         if platform == "android":
+            if not self.billing_manager or not getattr(self.billing_manager, "available", False):
+                self._popup("Unavailable", "Google Play Billing is not included in this build.")
+                return
             if not self.billing_manager or not self.billing_manager.connected:
                 if self.billing_manager:
                      self.billing_manager.start_connection()

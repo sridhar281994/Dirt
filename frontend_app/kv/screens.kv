@@ -99,11 +99,13 @@
 
             BoxLayout:
                 orientation: "vertical"
+                size_hint_x: None
                 size_hint_y: None
                 height: self.minimum_height
                 width: min(root.width * 0.9, dp(500))
-                # Centering in ScrollView
-                pos_hint: {"center_x": 0.5} if root.width > dp(500) else {}
+                # ScrollView controls viewport size/pos when size_hint_x is set.
+                # Using explicit width without disabling size_hint_x can cause repeated relayout loops.
+                x: (root.width - self.width) / 2
                 spacing: dp(15)
                 padding: dp(20)
                 canvas.before:
@@ -296,12 +298,13 @@
 
             BoxLayout:
                 orientation: "vertical"
+                size_hint_x: None
                 size_hint_y: None
                 height: self.minimum_height
                 width: min(root.width * 0.9, dp(500))
                 spacing: dp(15)
                 padding: dp(20)
-                pos_hint: {"center_x": 0.5} if root.width > dp(500) else {}
+                x: (root.width - self.width) / 2
                 canvas.before:
                     Color:
                         rgba: 0, 0, 0, 0.6
@@ -368,12 +371,13 @@
 
             BoxLayout:
                 orientation: "vertical"
+                size_hint_x: None
                 size_hint_y: None
                 height: self.minimum_height
                 width: min(root.width * 0.9, dp(500))
                 spacing: dp(15)
                 padding: dp(20)
-                pos_hint: {"center_x": 0.5} if root.width > dp(500) else {}
+                x: (root.width - self.width) / 2
                 canvas.before:
                     Color:
                         rgba: 0, 0, 0, 0.6
@@ -482,12 +486,13 @@
 
             BoxLayout:
                 orientation: "vertical"
+                size_hint_x: None
                 size_hint_y: None
                 height: self.minimum_height
                 width: min(root.width * 0.9, dp(500))
                 spacing: dp(15)
                 padding: dp(20)
-                pos_hint: {"center_x": 0.5} if root.width > dp(500) else {}
+                x: (root.width - self.width) / 2
                 canvas.before:
                     Color:
                         rgba: 0, 0, 0, 0.6
@@ -633,12 +638,13 @@
 
             BoxLayout:
                 orientation: "vertical"
+                size_hint_x: None
                 size_hint_y: None
                 height: self.minimum_height
                 width: min(root.width * 0.92, dp(600))
                 spacing: dp(12)
                 padding: dp(20)
-                pos_hint: {"center_x": 0.5} if root.width > dp(600) else {}
+                x: (root.width - self.width) / 2
                 canvas.before:
                     Color:
                         rgba: 0, 0, 0, 0.6
@@ -1490,8 +1496,6 @@
                     id: local_camera
                     play: root.camera_permission_granted and root.camera_should_play
                     fit_mode: "cover"
-                    allow_stretch: True
-                    keep_ratio: False
                     size_hint: 1, 1
 
         ####################################################################
