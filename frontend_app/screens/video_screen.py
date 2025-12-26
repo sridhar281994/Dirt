@@ -218,6 +218,14 @@ class VideoScreen(Screen):
             self.agora_joined = False
             self.agora_remote_connected = False
             self._set_loading(False)
+            # Disable Agora rendering so the user doesn't get a black screen.
+            # (Also prevents `_refresh_use_agora()` from immediately re-enabling it.)
+            self.agora_app_id = ""
+            self.agora_token = ""
+            try:
+                self.match_desc = "Unable to start video call. Please check your internet and try again."
+            except Exception:
+                pass
             self._refresh_use_agora()
 
     def _agora_leave(self, *, destroy: bool = False) -> None:
