@@ -25,19 +25,16 @@ jobs:
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
-      - name: Download Apache Ant
+      - name: Ensure Apache Ant is available
         run: |
-          ANT_VERSION="1.9.4"
-          ANT_TGZ="$RUNNER_TEMP/apache-ant-${ANT_VERSION}-bin.tar.gz"
-          ANT_DIR="$RUNNER_TEMP/apache-ant-${ANT_VERSION}"
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ant
 
-          wget -O "$ANT_TGZ" "https://archive.apache.org/dist/ant/binaries/apache-ant-${ANT_VERSION}-bin.tar.gz"
-          tar -xzf "$ANT_TGZ" -C "$RUNNER_TEMP"
-          rm "$ANT_TGZ"
-
-          # Patch buildozer.spec to use the local ant.
-          # Keep Ant outside the repo workspace so it won't get copied into the APK sources.
-          sed -i "s|#android.ant_path =|android.ant_path = ${ANT_DIR}|" buildozer.spec
+          # Ensure Buildozer uses the system ant and doesn't try to download Ant.
+          # Buildozer expects android.ant_path/bin/ant, which is /usr/bin/ant on Ubuntu.
+          sed -i 's|^#android.ant_path =.*|android.ant_path = /usr|' buildozer.spec
+          ant -version
 
       - name: Cache Buildozer + Gradle downloads
         uses: actions/cache@v4
@@ -63,6 +60,17 @@ jobs:
             export PATH="$HOME/.local/bin:$PATH"
             # Persist Gradle wrapper/caches inside the workspace so they can be cached between runs.
             export GRADLE_USER_HOME="$PWD/.gradle"
+
+            # Some runners/environments can't reach archive.apache.org reliably.
+            # Install Ant locally (or no-op if already installed) and make sure
+            # buildozer.spec points to it so Buildozer doesn't attempt a download.
+            if command -v ant >/dev/null 2>&1; then
+              echo "Ant already present: $(command -v ant)"
+            elif command -v apt-get >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y ant
+            fi
+            sed -i 's|^#android.ant_path =.*|android.ant_path = /usr|' buildozer.spec || true
             
             # The Android Gradle Plugin can run out of heap during packaging (e.g. :packageDebug),
             # especially when bundling large AARs (Agora full-sdk, etc.). Increase Gradle/JVM heap.
