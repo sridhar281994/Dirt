@@ -98,7 +98,7 @@ class ChooseScreen(Screen):
         if not self.billing_manager:
             self.billing_manager = BillingManager(self._on_billing_success)
             # Pre-query SKUs
-            if platform == "android":
+            if platform == "android" and getattr(self.billing_manager, "available", False):
                 self.billing_manager.query_sku_details(list(SKU_MAPPING.values()))
 
         # Update logged-in user info
@@ -368,6 +368,9 @@ class ChooseScreen(Screen):
             return
 
         if platform == "android":
+            if not self.billing_manager or not getattr(self.billing_manager, "available", False):
+                _popup("Unavailable", "Google Play Billing is not included in this build.")
+                return
             if not self.billing_manager or not self.billing_manager.connected:
                 # Try to reconnect or warn
                 if self.billing_manager:

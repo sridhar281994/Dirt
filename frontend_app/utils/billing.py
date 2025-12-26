@@ -20,6 +20,9 @@ class BillingManager:
                                 Signature: (sku, purchase_token, order_id)
         """
         self.update_callback = update_callback
+        # True only if the BillingClient classes are present in the APK.
+        self.available = False
+        self.init_error: str = ""
         self.connected = False
         self.billing_client = None
         self.sku_details_map = {}
@@ -37,8 +40,11 @@ class BillingManager:
             self.activity = PythonActivity.mActivity
             self.context = self.activity.getApplicationContext()
             
+            # If the billing library isn't packaged, autoclass will throw.
+            # Treat that as "billing unavailable" rather than a hard error spam.
             BillingClient = autoclass('com.android.billingclient.api.BillingClient')
             PurchasesUpdatedListener = autoclass('com.android.billingclient.api.PurchasesUpdatedListener')
+            self.available = True
             
             # Inner class for callbacks
             class MyPurchasesUpdatedListener(PythonJavaClass):
@@ -63,15 +69,26 @@ class BillingManager:
             self.start_connection()
             
         except Exception as e:
-            print(f"BillingManager Error: {e}")
+            # Make this non-fatal; many builds won't include Google Billing.
+            self.available = False
+            self.connected = False
+            self.billing_client = None
+            self.init_error = str(e)
+            print(f"BillingManager: Billing unavailable ({self.init_error})")
 
     def start_connection(self):
-        if not self.billing_client:
+        if not self.available or not self.billing_client:
             return
 
-        from jnius import autoclass, PythonJavaClass, java_method
-        BillingClientStateListener = autoclass('com.android.billingclient.api.BillingClientStateListener')
-        BillingClient = autoclass('com.android.billingclient.api.BillingClient')
+        try:
+            from jnius import autoclass, PythonJavaClass, java_method
+            BillingClientStateListener = autoclass('com.android.billingclient.api.BillingClientStateListener')
+            BillingClient = autoclass('com.android.billingclient.api.BillingClient')
+        except Exception as exc:
+            self.available = False
+            self.connected = False
+            self.init_error = str(exc)
+            return
 
         class MyStateListener(PythonJavaClass):
             __javainterfaces__ = ['com.android.billingclient.api.BillingClientStateListener']
@@ -96,12 +113,18 @@ class BillingManager:
 
         self.state_listener = MyStateListener(self)
         _listeners.append(self.state_listener)
-        self.billing_client.startConnection(self.state_listener)
+        try:
+            self.billing_client.startConnection(self.state_listener)
+        except Exception as exc:
+            self.connected = False
+            self.init_error = str(exc)
 
     def query_sku_details(self, product_ids: List[str]):
         """
         Query product details using BillingClient 5+ API (QueryProductDetailsParams)
         """
+        if not self.available:
+            return
         if not self.connected or not self.billing_client:
             print("BillingManager: Cannot query, not connected.")
             return
@@ -148,6 +171,9 @@ class BillingManager:
         self.billing_client.queryProductDetailsAsync(params_builder.build(), self.product_listener)
 
     def purchase(self, product_id: str):
+        if not self.available:
+            print("BillingManager: Billing unavailable.")
+            return
         if not self.connected or not self.billing_client:
             print("BillingManager: Not connected.")
             return
