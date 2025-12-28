@@ -107,7 +107,7 @@ def _video_set_in_call(db: Session, *, u: User, session_id: int, partner_id: int
     db.add(u)
 
 
-def _video_build_payload(*, session: ChatSession, me: User, other: User) -> dict:
+def _video_build_payload(*, session: ChatSession, me: User, other: User, duration_seconds: int = 60) -> dict:
     agora_app_id = os.getenv("AGORA_ID") or os.getenv("AGORA_APP_ID") or ""
     agora_app_id = (agora_app_id or "").strip()
     if not agora_app_id:
@@ -132,6 +132,13 @@ def _video_build_payload(*, session: ChatSession, me: User, other: User) -> dict
     except Exception:
         ttl = 3600
     token, expire_ts = build_rtc_token_from_env(channel_name=channel, uid=agora_uid, ttl_seconds=ttl)
+    try:
+        duration_seconds = int(duration_seconds or 0)
+    except Exception:
+        duration_seconds = 60
+    if duration_seconds <= 0:
+        duration_seconds = 60
+
     return {
         "ok": True,
         "agora_app_id": agora_app_id,
@@ -139,7 +146,7 @@ def _video_build_payload(*, session: ChatSession, me: User, other: User) -> dict
         "agora_uid": agora_uid,
         "agora_token": token,
         "agora_token_expire_ts": int(expire_ts or (int(time.time()) + ttl)),
-        "duration_seconds": 60,  # Standard duration
+        "duration_seconds": int(duration_seconds),
         "session": {
             "id": session.id,
             "mode": session.mode,
@@ -309,7 +316,19 @@ def video_match(
     me = _norm_gender(user.gender)
     desired_gender: Optional[str] = None
 
-    if user.is_subscribed:
+    # For free users:
+    # - Allow EXACTLY ONE opposite-gender match as a 40s trial (first time only).
+    # - After that, restrict to same gender (legacy behavior).
+    wants_opposite_trial = False
+    try:
+        free_opposite_used = int(getattr(user, "free_video_opposite_count", 0) or 0)
+    except Exception:
+        free_opposite_used = 0
+
+    if not bool(user.is_subscribed) and me in {"male", "female"} and free_opposite_used <= 0:
+        wants_opposite_trial = True
+        desired_gender = "female" if me == "male" else "male"
+    elif user.is_subscribed:
         # Paid: respect preference
         if pref in {"male", "female"}:
             desired_gender = pref
@@ -349,6 +368,11 @@ def video_match(
         )
         if desired_gender:
             q = q.filter(User.gender == desired_gender)
+        # If we're attempting the "first opposite-gender trial" for a free user,
+        # ensure we do not match another free user who already used their opposite trial.
+        # (Subscribed users are always eligible.)
+        if wants_opposite_trial:
+            q = q.filter(or_(User.is_subscribed == True, User.free_video_opposite_count <= 0))
         if exclude_ids:
             q = q.filter(~User.id.in_(exclude_ids))
         return q.order_by(func.random()).first()
@@ -376,9 +400,38 @@ def video_match(
     # Transition BOTH users into "in_call" state so the other device can poll and receive the same session.
     _video_set_in_call(db, u=user, session_id=session.id, partner_id=other.id)
     _video_set_in_call(db, u=other, session_id=session.id, partner_id=user.id)
+
+    # Update free-user counters (best-effort).
+    is_opposite = _is_opposite_or_cross(me_gender=user.gender, other_gender=other.gender)
+    # Duration rule:
+    # - Opposite-gender trial: 40s, but only for the *first* opposite match of any free participant.
+    # - Otherwise: standard 60s.
+    duration_seconds = 60
+    if bool(is_opposite):
+        try:
+            u_used = int(getattr(user, "free_video_opposite_count", 0) or 0)
+        except Exception:
+            u_used = 0
+        try:
+            o_used = int(getattr(other, "free_video_opposite_count", 0) or 0)
+        except Exception:
+            o_used = 0
+        if (not bool(user.is_subscribed) and u_used <= 0) or (not bool(other.is_subscribed) and o_used <= 0):
+            duration_seconds = 40
+
+    for a, b in ((user, other), (other, user)):
+        try:
+            if not bool(getattr(a, "is_subscribed", False)):
+                a.free_video_total_count = int(getattr(a, "free_video_total_count", 0) or 0) + 1
+                if _is_opposite_or_cross(me_gender=getattr(a, "gender", ""), other_gender=getattr(b, "gender", "")):
+                    a.free_video_opposite_count = int(getattr(a, "free_video_opposite_count", 0) or 0) + 1
+                db.add(a)
+        except Exception:
+            # Never block matching due to counter updates.
+            pass
     db.commit()
 
-    return _video_build_payload(session=session, me=user, other=other)
+    return _video_build_payload(session=session, me=user, other=other, duration_seconds=duration_seconds)
 
 
 @router.get("/video/token", response_model=VideoTokenOut)

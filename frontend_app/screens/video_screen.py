@@ -37,6 +37,10 @@ class VideoScreen(Screen):
     match_user_id = NumericProperty(0) # Store ID for reporting
 
     duration_seconds = NumericProperty(0)
+    # Timer is an increasing clock starting at 00:00 (not a countdown).
+    elapsed_seconds = NumericProperty(0)
+    timer_text = StringProperty("00:00")
+    # Backwards-compat (legacy KV referenced this). Keep but do not use for UI.
     remaining_seconds = NumericProperty(0)
 
     controls_visible = BooleanProperty(True)
@@ -143,6 +147,8 @@ class VideoScreen(Screen):
             self._refresh_use_agora()
         except Exception:
             pass
+        # Start the timer when the remote user actually connects.
+        self._maybe_start_timer()
         try:
             if self._agora:
                 self._agora.on_remote_user_joined(int(uid or 0))
@@ -161,6 +167,8 @@ class VideoScreen(Screen):
             # Remote left; show loader again so user understands it's waiting.
             self._set_loading(True)
             self._refresh_use_agora()
+            # Stop timer when remote disconnects.
+            self._stop_timer()
 
     def _agora_should_use(self) -> bool:
         return bool(
@@ -550,12 +558,14 @@ class VideoScreen(Screen):
         self.session_id = int(session_id)
 
     def start_random(self, *, preference: str = "both") -> None:
-        # Cancel any existing countdown
+        # Cancel any existing timer
         self._stop_timer()
         self.last_preference = (preference or "both").strip().lower() or "both"
         # Show loader while we match/connect.
         self._set_loading(True)
         self.is_remote_connected = False
+        self.elapsed_seconds = 0
+        self.timer_text = "00:00"
 
         def work():
             try:
@@ -584,6 +594,8 @@ class VideoScreen(Screen):
                     self.match_is_online = False
                     self.duration_seconds = 0
                     self.remaining_seconds = 0
+                    self.elapsed_seconds = 0
+                    self.timer_text = "00:00"
                     self._stop_timer()
                     self.is_remote_connected = False
                     self._set_loading(False)
@@ -649,12 +661,16 @@ class VideoScreen(Screen):
             self.match_image_url = ""
 
         self.duration_seconds = duration
-        self.remaining_seconds = duration
+        self.remaining_seconds = 0
+        self.elapsed_seconds = 0
+        self.timer_text = "00:00"
         self._refresh_use_agora()
-        self._start_timer()
+        # Start timer only once the remote user is actually connected.
+        self._stop_timer()
         self._ensure_android_av_permissions()
         Clock.schedule_once(lambda *_: self._agora_join_if_ready(), 0.05)
         self._sync_remote_loading_state()
+        self._maybe_start_timer()
 
     def next_call(self) -> None:
         # Uses the last chosen preference from ChooseScreen via start_random argument;
@@ -849,6 +865,8 @@ class VideoScreen(Screen):
         self.match_user_id = 0
         self.duration_seconds = 0
         self.remaining_seconds = 0
+        self.elapsed_seconds = 0
+        self.timer_text = "00:00"
         self.is_remote_connected = False
         self._set_loading(False)
         self._clear_chat_overlay()
@@ -964,6 +982,34 @@ class VideoScreen(Screen):
             connected = bool(self.session_id > 0 and self.match_username and self.match_is_online)
         self.is_remote_connected = bool(connected)
         self._set_loading(not bool(connected) and bool(self.session_id > 0))
+        self._maybe_start_timer()
+
+    @staticmethod
+    def _format_mmss(total_seconds: int) -> str:
+        try:
+            total_seconds = int(total_seconds or 0)
+        except Exception:
+            total_seconds = 0
+        if total_seconds < 0:
+            total_seconds = 0
+        mm = total_seconds // 60
+        ss = total_seconds % 60
+        return f"{mm:02d}:{ss:02d}"
+
+    def _maybe_start_timer(self) -> None:
+        """
+        Start the increasing timer at 00:00 once the remote user is connected.
+        """
+        if not bool(self.is_remote_connected):
+            return
+        if int(self.session_id or 0) <= 0:
+            return
+        if self._ticker is not None:
+            return
+        # Ensure UI starts at 00:00.
+        self.elapsed_seconds = int(self.elapsed_seconds or 0)
+        self.timer_text = self._format_mmss(int(self.elapsed_seconds or 0))
+        self._start_timer()
 
     def _set_loading(self, should_show: bool) -> None:
         should_show = bool(should_show)
@@ -1008,18 +1054,20 @@ class VideoScreen(Screen):
         self._ticker = None
 
     def _tick(self, _dt):
-        rem = int(self.remaining_seconds or 0)
-        if rem <= 0:
-            self.remaining_seconds = 0
+        # Count UP (00:00 -> 00:01 -> ...), never decrease.
+        try:
+            self.elapsed_seconds = int(self.elapsed_seconds or 0) + 1
+        except Exception:
+            self.elapsed_seconds = 0
+        self.timer_text = self._format_mmss(int(self.elapsed_seconds or 0))
+
+        # Enforce server-provided duration limit (if any) by auto-Next.
+        try:
+            dur = int(self.duration_seconds or 0)
+        except Exception:
+            dur = 0
+        if dur > 0 and int(self.elapsed_seconds or 0) >= dur:
             self._stop_timer()
-            # Auto-change to next call when timer expires
-            self.next_call()
-            return False
-        self.remaining_seconds = rem - 1
-        if self.remaining_seconds <= 0:
-            self.remaining_seconds = 0
-            self._stop_timer()
-            # Auto-change to next call when timer expires
             self.next_call()
             return False
         return True

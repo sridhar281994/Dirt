@@ -110,6 +110,8 @@ class StartVideoDateScreen(Screen):
                 Window.softinput_mode = "pan"
             except Exception:
                 self._prev_softinput_mode = None
+        # Request permissions up-front (so VideoScreen can join quickly),
+        # but do NOT start local preview on this screen.
         self._ensure_android_av_permissions()
         self._start_chat_polling()
         self.retry()
@@ -149,11 +151,12 @@ class StartVideoDateScreen(Screen):
         self._refresh_android_permission_state()
 
         if self.camera_permission_granted and self.audio_permission_granted:
-            self._start_camera()
+            # Do not start local camera preview on StartVideoDateScreen.
+            self.camera_should_play = False
             return
 
         if platform != "android":
-            self._start_camera()
+            self.camera_should_play = False
             return
 
         try:
@@ -165,7 +168,8 @@ class StartVideoDateScreen(Screen):
                     try:
                         self._refresh_android_permission_state()
                         if self.camera_permission_granted and self.audio_permission_granted:
-                            self._start_camera()
+                            # Do not start local camera preview on StartVideoDateScreen.
+                            self.camera_should_play = False
                         else:
                             Logger.warning(
                                 "StartVideoDateScreen: permissions denied. camera=%s audio=%s",
