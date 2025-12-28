@@ -14,6 +14,12 @@ from frontend_app.utils.api import ApiError, api_get_public_messages, api_post_p
 
 
 class PublicChatScreen(Screen):
+    # Rendering hundreds of Labels in one frame can trigger:
+    #   [CRITICAL] [Clock] Warning, too much iteration done before the next frame...
+    # Keep UI snappy by limiting + chunk-rendering across frames.
+    DISPLAY_LIMIT = 200
+    RENDER_CHUNK = 40
+
     def on_pre_enter(self, *args):
         self.refresh_messages(scroll_to_bottom=True)
         # Start auto-refresh polling
@@ -29,8 +35,8 @@ class PublicChatScreen(Screen):
     def refresh_messages(self, scroll_to_bottom: bool = False) -> None:
         def work():
             try:
-                data = api_get_public_messages(limit=500)
-                msgs = data.get("messages") or []
+                data = api_get_public_messages(limit=int(self.DISPLAY_LIMIT))
+                msgs = list(data.get("messages") or [])
                 Clock.schedule_once(lambda *_: self._display_messages(msgs, scroll_to_bottom), 0)
             except ApiError:
                 pass  # suppress errors in loop
@@ -42,29 +48,43 @@ class PublicChatScreen(Screen):
         if not box:
             return
         box.clear_widgets()
-        for m in messages:
-            # Simple message display
-            sender = m.get("sender_name") or "Unknown"
-            text = m.get("message") or ""
-            # Layout for message
-            lbl = Label(
-                text=f"[b]{sender}[/b]: {text}",
-                markup=True,
-                size_hint_y=None,
-                height=40,
-                text_size=(box.width, None),
-                halign="left",
-                valign="middle",
-                color=(1, 1, 1, 1)
-            )
-            # Dynamic height?
-            # For now fixed height is fine for simple text
-            box.add_widget(lbl)
-            
-        if scroll_to_bottom:
-            scroll = self.ids.get("messages_scroll")
-            if scroll:
-                scroll.scroll_y = 0
+
+        # Render incrementally (one chunk per frame) to avoid Clock iteration warnings.
+        msgs = list(messages)[-int(self.DISPLAY_LIMIT) :] if messages else []
+        idx = 0
+
+        def _render_chunk(_dt):
+            nonlocal idx
+            end = min(idx + int(self.RENDER_CHUNK), len(msgs))
+            for m in msgs[idx:end]:
+                sender = m.get("sender_name") or "Unknown"
+                text = m.get("message") or ""
+                lbl = Label(
+                    text=f"[b]{sender}[/b]: {text}",
+                    markup=True,
+                    size_hint_y=None,
+                    height=40,
+                    text_size=(box.width, None),
+                    halign="left",
+                    valign="middle",
+                    color=(1, 1, 1, 1),
+                )
+                box.add_widget(lbl)
+            idx = end
+
+            if idx < len(msgs):
+                Clock.schedule_once(_render_chunk, 0)
+                return
+
+            if scroll_to_bottom:
+                scroll = self.ids.get("messages_scroll")
+                if scroll:
+                    try:
+                        scroll.scroll_y = 0
+                    except Exception:
+                        pass
+
+        Clock.schedule_once(_render_chunk, 0)
 
     def send_message(self) -> None:
         inp = self.ids.get("message_input")

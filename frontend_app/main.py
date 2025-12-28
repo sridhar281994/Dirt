@@ -42,6 +42,14 @@ class WelcomeScreen(Screen):
 class ChatApp(App):
     def build(self):
         self.title = "Buddymeet"
+        # Some screens render dynamic lists (chat/history). On slower devices,
+        # Kivy can hit the default max_iteration and spam:
+        #   [CRITICAL] [Clock] Warning, too much iteration done before the next frame...
+        # We still fix the root cause (chunked rendering), but keep a small safety margin.
+        try:
+            Clock.max_iteration = max(int(getattr(Clock, "max_iteration", 20) or 20), 50)
+        except Exception:
+            pass
         # Mobile keyboard: keep the focused TextInput visible (avoid being covered).
         try:
             from kivy.core.window import Window
