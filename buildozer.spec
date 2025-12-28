@@ -2,6 +2,7 @@
 title = Buddymeet
 package.name = buddymeet
 package.domain = com.srtech
+version = 0.1.0
 
 # Root-level entrypoint is REQUIRED for python-for-android in this repo.
 # It dispatches to the Kivy app on Android and to the backend on server.
