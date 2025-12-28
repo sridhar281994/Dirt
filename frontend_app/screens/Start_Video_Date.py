@@ -51,6 +51,9 @@ class StartVideoDateScreen(Screen):
         super().__init__(**kwargs)
         self._init_camera_ids()
         self._init_local_preview_transform()
+        # Chat overlay layout throttling (prevents excessive relayout iterations).
+        self._chat_box_width_bound = False
+        self._chat_rewrap_trigger = None
         # Soft keyboard behavior can affect overlay positioning on Android.
         # We'll temporarily override per-screen to avoid cumulative upward drift.
         self._prev_softinput_mode: str | None = None
@@ -399,6 +402,55 @@ class StartVideoDateScreen(Screen):
         self._chat_ticker = Clock.schedule_interval(self._poll_chat, 3.0)
         self._poll_chat(0)
 
+    def _ensure_chat_box_width_binding(self) -> None:
+        """
+        Bind a single width handler on the container instead of per-label binds.
+        This dramatically reduces layout-trigger storms (Clock.max_iteration warnings)
+        when we rebuild the chat overlay.
+        """
+        if self._chat_box_width_bound:
+            return
+        box = self.ids.get("chat_box")
+        if not box:
+            return
+
+        def _on_box_width(*_args):
+            self._schedule_chat_rewrap()
+
+        try:
+            box.bind(width=_on_box_width)
+            self._chat_box_width_bound = True
+        except Exception:
+            # If binding fails for any reason, we still want the screen usable.
+            self._chat_box_width_bound = False
+
+    def _schedule_chat_rewrap(self) -> None:
+        if self._chat_rewrap_trigger is None:
+            self._chat_rewrap_trigger = Clock.create_trigger(self._rewrap_chat_labels, 0)
+        try:
+            self._chat_rewrap_trigger()
+        except Exception:
+            pass
+
+    def _rewrap_chat_labels(self, *_dt) -> None:
+        box = self.ids.get("chat_box")
+        if not box:
+            return
+        # Use each label's own allocated width (more stable than box.width during transitions).
+        for child in list(getattr(box, "children", [])):
+            if hasattr(child, "width") and hasattr(child, "text_size"):
+                try:
+                    child.text_size = (max(0, float(child.width)), None)
+                except Exception:
+                    pass
+
+    @staticmethod
+    def _fit_label_height(lbl, texture_size) -> None:
+        try:
+            lbl.height = float(texture_size[1]) + dp(6)
+        except Exception:
+            pass
+
     def _stop_chat_polling(self) -> None:
         if self._chat_ticker:
             try:
@@ -410,8 +462,10 @@ class StartVideoDateScreen(Screen):
     def _poll_chat(self, _dt) -> None:
         sid = int(self.session_id or 0)
         if sid <= 0:
-            # Not connected yet: keep overlay empty.
-            Clock.schedule_once(lambda *_: self._clear_chat_overlay(), 0)
+            # Not connected yet: keep overlay empty (but don't spam relayout work).
+            box = self.ids.get("chat_box")
+            if box and getattr(box, "children", []):
+                Clock.schedule_once(lambda *_: self._clear_chat_overlay(), 0)
             return
 
         def work():
@@ -421,6 +475,7 @@ class StartVideoDateScreen(Screen):
                 msgs = list(msgs)[-5:]  # show only last five
 
                 def update_ui(*_):
+                    self._ensure_chat_box_width_binding()
                     box = self.ids.get("chat_box")
                     if not box:
                         return
@@ -456,23 +511,29 @@ class StartVideoDateScreen(Screen):
                             size_hint_x=1,
                             halign="left",
                             valign="middle",
-                            text_size=(box.width, None),
+                            # Defer wrapping until after the next layout pass to avoid
+                            # repeated width/texture/height feedback loops.
+                            text_size=(0, None),
                             color=(1, 1, 1, 1),
                         )
-                        # Keep wrapping width in sync with layout allocation.
-                        lbl.bind(width=lambda inst, w: setattr(inst, "text_size", (w, None)))
-                        # Only adjust height based on texture; never set width from texture_size.
-                        lbl.bind(texture_size=lambda inst, s: setattr(inst, "height", s[1] + dp(6)))
+                        # Only adjust height based on texture; width wrap is handled in bulk.
+                        lbl.bind(texture_size=self._fit_label_height)
 
                         box.add_widget(lbl)
 
-                    # Scroll to bottom (latest) in the small overlay.
-                    scroll = self.ids.get("chat_overlay")
-                    if scroll:
-                        try:
-                            scroll.scroll_y = 0
-                        except Exception:
-                            pass
+                    # Apply wrapping once the layout has assigned widths.
+                    self._schedule_chat_rewrap()
+
+                    # Scroll to bottom (latest) after the rewrap/layout settles.
+                    def _scroll_bottom(*_a):
+                        scroll = self.ids.get("chat_overlay")
+                        if scroll:
+                            try:
+                                scroll.scroll_y = 0
+                            except Exception:
+                                pass
+
+                    Clock.schedule_once(_scroll_bottom, 0)
 
                 Clock.schedule_once(update_ui, 0)
             except Exception:
