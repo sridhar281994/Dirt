@@ -1481,7 +1481,8 @@
                 color: (0.2, 1, 0.3, 1) if (not root.show_loading and root.session_id > 0) else (1, 0.8, 0.2, 1)
                 halign: "center"
                 valign: "middle"
-                text_size: self.size
+                # Avoid feeding label height back into its own text layout.
+                text_size: self.width, None
 
         ####################################################################
         # LOADING SPINNER
@@ -1509,6 +1510,9 @@
             font_size: sp(18)
             color: 1, 1, 1, 0.85
             pos_hint: {"center_x": 0.5, "center_y": 0.45}
+            halign: "center"
+            valign: "middle"
+            text_size: self.width, None
 
         ####################################################################
         # CHAT OVERLAY
@@ -1596,7 +1600,7 @@
                 color: 1, 1, 1, 1
                 halign: "left"
                 valign: "middle"
-                text_size: self.size
+                text_size: self.width, None
 
             Label:
                 text: "● CONNECTING" if root.show_loading else "● READY"
@@ -1607,7 +1611,7 @@
                 bold: True
                 halign: "right"
                 valign: "middle"
-                text_size: self.size
+                text_size: self.width, None
 
         ####################################################################
         # BOTTOM CONTROLS
