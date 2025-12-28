@@ -1,6 +1,7 @@
 from __future__ import annotations
 from threading import Thread
 from kivy.clock import Clock
+from kivy.logger import Logger
 from kivy.uix.screenmanager import Screen
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -21,13 +22,14 @@ class UserMatchScreen(Screen):
     def refresh_history(self):
         def work():
             try:
+                Logger.info("API: about to call server")
                 data = api_get_history()
                 history = data.get("history") or []
                 Clock.schedule_once(lambda *_: self._display_history(history), 0)
-            except ApiError as exc:
-                print(f"Messages error: {exc}")
+            except ApiError:
+                Logger.exception("NETWORK ERROR")
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def _display_history(self, history):
         box = self.ids.get("history_box")

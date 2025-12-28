@@ -2,6 +2,7 @@ from threading import Thread
 import re
 
 from kivy.clock import Clock
+from kivy.logger import Logger
 from kivy.uix.popup import Popup
 from kivy.uix.label import Label
 from kivy.uix.screenmanager import Screen
@@ -75,6 +76,7 @@ class RegisterScreen(Screen):
 
         def work():
             try:
+                Logger.info("API: about to call server")
                 res = api_register(
                     email=email,
                     username=username,
@@ -96,7 +98,7 @@ class RegisterScreen(Screen):
             except ApiError as e:
                 self._popup("Error", str(e))
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def social_login(self, provider: str) -> None:
         self._popup("Info", f"{provider} login will be added later.")

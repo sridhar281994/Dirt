@@ -3,6 +3,7 @@ from __future__ import annotations
 from threading import Thread
 
 from kivy.clock import Clock
+from kivy.logger import Logger
 from kivy.properties import NumericProperty, StringProperty
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
@@ -64,6 +65,7 @@ class ChatScreen(Screen):
 
         def work():
             try:
+                Logger.info("API: about to call server")
                 data = api_get_messages(session_id=sid)
                 msgs = list(data.get("messages") or [])
 
@@ -149,7 +151,7 @@ class ChatScreen(Screen):
             except ApiError as exc:
                 _popup("Error", str(exc))
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def send_message(self):
         sid = int(self.session_id or 0)
@@ -162,6 +164,7 @@ class ChatScreen(Screen):
 
         def work():
             try:
+                Logger.info("API: about to call server")
                 api_post_message(session_id=sid, message=msg)
 
                 def after(*_):
@@ -173,5 +176,5 @@ class ChatScreen(Screen):
             except ApiError as exc:
                 _popup("Error", str(exc))
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 

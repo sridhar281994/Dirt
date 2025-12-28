@@ -173,7 +173,13 @@ class ChatApp(App):
                 except Exception:
                     Logger.exception("Permissions callback failed")
 
-            request_permissions(perms, _on_permissions_result)
+            # Schedule on next frame so the Android Activity is fully resumed
+            # (permission dialogs can fail to appear if requested too early).
+            def _do_request(_dt):
+                Logger.info("Permissions: requesting camera+microphone")
+                request_permissions(perms, _on_permissions_result)
+
+            Clock.schedule_once(_do_request, 0)
         except Exception:
             # Make startup failures visible in logcat.
             Logger.exception("Permission request failed during on_start()")

@@ -4,6 +4,7 @@ from threading import Thread
 from typing import Any, Dict, Optional
 
 from kivy.clock import Clock
+from kivy.logger import Logger
 from kivy.properties import BooleanProperty, NumericProperty, StringProperty
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
@@ -183,6 +184,7 @@ class ChooseScreen(Screen):
 
         def work():
             try:
+                Logger.info("API: about to call server")
                 data = api_next_profile(preference=self.preference)
                 prof = (data or {}).get("profile")
                 if not prof:
@@ -194,19 +196,20 @@ class ChooseScreen(Screen):
             except ApiError as exc:
                 _popup("Error", str(exc))
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def _prefetch_next_profile(self) -> None:
         def work():
             try:
+                Logger.info("API: about to call server")
                 data = api_next_profile(preference=self.preference)
                 prof = (data or {}).get("profile")
                 if prof:
                     self._next_profile_cache = prof
             except Exception:
-                pass
+                Logger.exception("NETWORK ERROR")
         
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def _set_profile(self, prof: Optional[Dict[str, Any]]) -> None:
         if not prof:
@@ -285,13 +288,14 @@ class ChooseScreen(Screen):
 
         def work():
             try:
+                Logger.info("API: about to call server")
                 api_swipe(target_user_id=tid, direction=direction)
-            except ApiError as exc:
+            except ApiError:
                 # Swipe failed, but we already moved on. 
                 # Ideally we might queue this or retry, but for now just log/ignore for UI speed.
-                pass
+                Logger.exception("NETWORK ERROR")
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
     
     def on_touch_down(self, touch):
         if self.collide_point(*touch.pos):
@@ -321,6 +325,7 @@ class ChooseScreen(Screen):
 
         def work():
             try:
+                Logger.info("API: about to call server")
                 data = api_start_session(target_user_id=tid, mode=mode)
                 sess = data.get("session") or {}
                 sid = int(sess.get("id") or 0)
@@ -341,7 +346,7 @@ class ChooseScreen(Screen):
             except ApiError as exc:
                 _popup("Subscription", str(exc))
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def start_video_chat(self) -> None:
         """Start a video chat from the current profile card."""
@@ -400,6 +405,7 @@ class ChooseScreen(Screen):
 
         def verify_server():
             try:
+                Logger.info("API: about to call server")
                 valid = api_verify_subscription(purchase_token=purchase_token, plan_key=plan_key)
                 if not valid:
                     # In production, you might want to retry or not consume, but here we just warn
@@ -413,7 +419,7 @@ class ChooseScreen(Screen):
             except Exception as exc:
                 _popup("Subscription Error", str(exc))
 
-        Thread(target=verify_server, daemon=True).start()
+        Thread(target=verify_server, daemon=False).start()
 
     def _unlock_ui(self, plan_key):
         spinner = self.ids.get("pref_spinner")

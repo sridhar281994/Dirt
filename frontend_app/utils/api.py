@@ -9,6 +9,14 @@ import urllib3
 
 from frontend_app.utils.storage import get_token
 
+try:
+    # Kivy Logger (Android-friendly, goes to logcat)
+    from kivy.logger import Logger  # type: ignore
+except Exception:  # pragma: no cover
+    import logging
+
+    Logger = logging.getLogger("frontend_api")  # type: ignore
+
 
 class ApiError(RuntimeError):
     pass
@@ -84,11 +92,12 @@ def _maybe_warmup(*, force: bool = False) -> None:
     url = f"{_base_url()}{_PING_PATH}"
     # Best-effort warmup: if it fails, the subsequent call will surface the error.
     try:
+        Logger.info("API: warmup ping %s", url)
         requests.get(url, timeout=_DEFAULT_TIMEOUT, verify=False)
         _last_warmup_monotonic = now
     except Exception:
         # Don't raise here; let the main request's retry/timeout handling decide messaging.
-        pass
+        Logger.exception("API warmup failed")
 
 
 def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
@@ -116,14 +125,22 @@ def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
     # Retry once on Timeout (common with cold starts).
     for attempt in range(2):
         try:
-            return requests.request(method, url, **kwargs)
+            Logger.info("API: about to call server %s %s (attempt=%s)", method, url, attempt + 1)
+            r = requests.request(method, url, **kwargs)
+            try:
+                Logger.info("API: response %s %s -> %s", method, url, int(getattr(r, "status_code", 0) or 0))
+            except Exception:
+                pass
+            return r
         except requests.exceptions.Timeout as exc:
             if attempt == 0:
                 # Force a warmup ping then retry once.
                 _maybe_warmup(force=True)
                 continue
+            Logger.exception("API failed (timeout)")
             raise ApiError(_friendly_network_error(exc, url=url)) from exc
         except requests.RequestException as exc:
+            Logger.exception("API failed (request exception)")
             raise ApiError(_friendly_network_error(exc, url=url)) from exc
 
 

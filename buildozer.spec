@@ -41,7 +41,7 @@ android.minapi = 21
 android.archs = arm64-v8a,armeabi-v7a
 
 # Permissions needed for video + network + billing
-android.permissions = INTERNET,CAMERA,RECORD_AUDIO,WAKE_LOCK,MODIFY_AUDIO_SETTINGS,FOREGROUND_SERVICE,com.android.vending.BILLING
+android.permissions = INTERNET,ACCESS_NETWORK_STATE,CAMERA,RECORD_AUDIO,WAKE_LOCK,MODIFY_AUDIO_SETTINGS,FOREGROUND_SERVICE,com.android.vending.BILLING
 
 # Use Gradle (required for modern Android + dependencies)
 android.enable_androidx = True

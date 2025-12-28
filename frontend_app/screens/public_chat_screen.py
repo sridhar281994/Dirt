@@ -4,6 +4,7 @@ from threading import Thread
 from typing import Any, Dict
 
 from kivy.clock import Clock
+from kivy.logger import Logger
 from kivy.properties import ObjectProperty
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -35,13 +36,14 @@ class PublicChatScreen(Screen):
     def refresh_messages(self, scroll_to_bottom: bool = False) -> None:
         def work():
             try:
+                Logger.info("API: about to call server")
                 data = api_get_public_messages(limit=int(self.DISPLAY_LIMIT))
                 msgs = list(data.get("messages") or [])
                 Clock.schedule_once(lambda *_: self._display_messages(msgs, scroll_to_bottom), 0)
             except ApiError:
-                pass  # suppress errors in loop
+                Logger.exception("NETWORK ERROR")  # keep polling but don't swallow
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def _display_messages(self, messages, scroll_to_bottom: bool) -> None:
         box = self.ids.get("messages_box")
@@ -99,12 +101,13 @@ class PublicChatScreen(Screen):
 
         def work():
             try:
+                Logger.info("API: about to call server")
                 api_post_public_message(message=text)
                 Clock.schedule_once(lambda *_: self.refresh_messages(scroll_to_bottom=True), 0)
-            except ApiError as exc:
-                print(f"Send error: {exc}")
+            except ApiError:
+                Logger.exception("NETWORK ERROR")
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def report_chat(self):
         from frontend_app.utils.report_popup import show_report_popup

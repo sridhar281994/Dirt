@@ -1,5 +1,6 @@
 from threading import Thread
 from kivy.clock import Clock
+from kivy.logger import Logger
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
@@ -80,6 +81,7 @@ def show_report_popup(reported_user_id: int | None, context: str):
         
         def work():
             try:
+                Logger.info("API: about to call server")
                 api_report_user(
                     reported_user_id=reported_user_id,
                     reason=reason,
@@ -112,7 +114,7 @@ def show_report_popup(reported_user_id: int | None, context: str):
                     e_pop.open()
                 Clock.schedule_once(show_err, 0)
                 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     submit_btn.bind(on_release=on_submit)
     popup.open()

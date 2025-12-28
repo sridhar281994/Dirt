@@ -285,6 +285,7 @@ class StartVideoDateScreen(Screen):
 
         def work():
             try:
+                Logger.info("API: about to call server")
                 data = api_video_match(preference=self.preference)
                 match = data.get("match") or {}
                 has_match = match.get("is_online")
@@ -346,16 +347,17 @@ class StartVideoDateScreen(Screen):
 
                 Clock.schedule_once(lambda *_: apply_err(), 0)
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def _end_backend_video_call(self, *, session_id: int | None = None) -> None:
         def work():
             try:
+                Logger.info("API: about to call server")
                 api_video_end(session_id=session_id)
             except Exception:
-                pass
+                Logger.exception("NETWORK ERROR")
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def next_call(self) -> None:
         """
@@ -470,6 +472,7 @@ class StartVideoDateScreen(Screen):
 
         def work():
             try:
+                Logger.info("API: about to call server")
                 data = api_get_messages(session_id=sid)
                 msgs = data.get("messages") or []
                 msgs = list(msgs)[-5:]  # show only last five
@@ -538,9 +541,9 @@ class StartVideoDateScreen(Screen):
                 Clock.schedule_once(update_ui, 0)
             except Exception:
                 # Suppress polling errors.
-                pass
+                Logger.exception("NETWORK ERROR")
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def send_message(self) -> None:
         sid = int(self.session_id or 0)
@@ -557,12 +560,13 @@ class StartVideoDateScreen(Screen):
 
         def work():
             try:
+                Logger.info("API: about to call server")
                 api_post_message(session_id=sid, message=msg)
                 Clock.schedule_once(lambda *_: self._poll_chat(0), 0)
             except ApiError:
-                pass
+                Logger.exception("NETWORK ERROR")
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def go_back(self) -> None:
         self._stop_spinner()

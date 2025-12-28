@@ -569,6 +569,7 @@ class VideoScreen(Screen):
 
         def work():
             try:
+                Logger.info("API: about to call server")
                 data = api_video_match(preference=self.last_preference)
 
                 def apply(*_):
@@ -603,7 +604,7 @@ class VideoScreen(Screen):
 
                 Clock.schedule_once(apply_err, 0)
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def apply_match_payload(self, data: dict, *, preference: str = "both") -> None:
         """
@@ -735,6 +736,7 @@ class VideoScreen(Screen):
         
         def work():
             try:
+                Logger.info("API: about to call server")
                 data = api_get_messages(session_id=self.session_id)
                 msgs = data.get("messages") or []
                 msgs = list(msgs)[-5:]  # show only last five
@@ -798,9 +800,9 @@ class VideoScreen(Screen):
                         
                 Clock.schedule_once(update_ui, 0)
             except Exception:
-                pass
+                Logger.exception("NETWORK ERROR")
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def send_message(self):
         sid = int(self.session_id or 0)
@@ -816,13 +818,14 @@ class VideoScreen(Screen):
         
         def work():
             try:
+                Logger.info("API: about to call server")
                 api_post_message(session_id=sid, message=msg)
                 # Force poll
                 Clock.schedule_once(self._poll_chat, 0.1)
             except Exception:
-                pass
+                Logger.exception("NETWORK ERROR")
         
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def go_back(self):
         self._stop_timer()
@@ -833,10 +836,11 @@ class VideoScreen(Screen):
         sid = int(self.session_id or 0)
         def end_call_bg():
             try:
+                Logger.info("API: about to call server")
                 api_video_end(session_id=sid)
             except Exception:
-                pass
-        Thread(target=end_call_bg, daemon=True).start()
+                Logger.exception("NETWORK ERROR")
+        Thread(target=end_call_bg, daemon=False).start()
 
         if self.manager:
             self.manager.current = "choose"
@@ -873,11 +877,12 @@ class VideoScreen(Screen):
 
         def end_call_bg():
             try:
+                Logger.info("API: about to call server")
                 api_video_end(session_id=sid)
             except Exception:
-                pass
+                Logger.exception("NETWORK ERROR")
 
-        Thread(target=end_call_bg, daemon=True).start()
+        Thread(target=end_call_bg, daemon=False).start()
 
     def toggle_mute(self) -> None:
         """

@@ -4,6 +4,7 @@ from threading import Thread
 from typing import Any, Optional
 
 from kivy.clock import Clock
+from kivy.logger import Logger
 from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
@@ -84,6 +85,7 @@ class ForgotPasswordScreen(Screen):
         
         def work():
             try:
+                Logger.info("API: about to call server")
                 api_forgot_password_request_otp(identifier=identifier)
                 def ok(*_):
                     self.otp_stage_ready = True
@@ -92,7 +94,7 @@ class ForgotPasswordScreen(Screen):
             except ApiError as e:
                 _popup("Error", str(e))
         
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def verify_otp_and_continue(self) -> None:
         otp = _safe_text(self, "otp_input")
@@ -139,6 +141,7 @@ class ResetPasswordScreen(Screen):
         def work():
             self.is_processing = True
             try:
+                Logger.info("API: about to call server")
                 api_forgot_password_reset(
                     identifier=self.current_identifier,
                     otp=self.current_otp,
@@ -156,4 +159,4 @@ class ResetPasswordScreen(Screen):
             finally:
                 self.is_processing = False
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()

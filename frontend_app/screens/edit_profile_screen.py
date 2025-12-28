@@ -1,6 +1,7 @@
 from threading import Thread
 
 from kivy.clock import Clock
+from kivy.logger import Logger
 from kivy.properties import StringProperty
 from kivy.uix.screenmanager import Screen
 from kivy.uix.popup import Popup
@@ -63,6 +64,7 @@ class EditProfileScreen(Screen):
 
         def work():
             try:
+                Logger.info("API: about to call server")
                 data = api_update_profile(name=name)
                 # Update local session with new user data
                 user = data.get("user") or {}
@@ -79,7 +81,7 @@ class EditProfileScreen(Screen):
             except Exception as e:
                 self._popup("Error", f"Failed to update: {str(e)}")
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def pick_image(self) -> None:
         """
@@ -168,6 +170,7 @@ class EditProfileScreen(Screen):
 
         def work():
             try:
+                Logger.info("API: about to call server")
                 data = api_upload_profile_image(file_path=path)
                 user = data.get("user") or {}
                 token = get_token()
@@ -189,7 +192,7 @@ class EditProfileScreen(Screen):
             except Exception as exc:
                 self._popup("Error", f"Upload failed: {exc}")
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     @staticmethod
     def _normalize_image_url(url: str) -> str:
@@ -249,6 +252,7 @@ class EditProfileScreen(Screen):
 
         def verify_server():
             try:
+                Logger.info("API: about to call server")
                 valid = api_verify_subscription(purchase_token=purchase_token, plan_key=plan_key)
                 if not valid:
                     raise ApiError("Server verification failed.")
@@ -261,7 +265,7 @@ class EditProfileScreen(Screen):
             except Exception as exc:
                 self._popup("Subscription Error", str(exc))
 
-        Thread(target=verify_server, daemon=True).start()
+        Thread(target=verify_server, daemon=False).start()
 
     def go_history(self):
         if self.manager:

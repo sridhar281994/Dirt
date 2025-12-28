@@ -2,6 +2,7 @@ from threading import Thread
 
 from kivy.clock import Clock
 from kivy.core.window import Window
+from kivy.logger import Logger
 from kivy.properties import BooleanProperty, NumericProperty
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
@@ -108,6 +109,7 @@ class LoginScreen(Screen):
         def work():
             # Request OTP - this will validate the password automatically
             try:
+                Logger.info("API: about to call server")
                 data = api_login_request_otp(identifier=identifier, password=password)
                 _popup("Success", data.get("message") or "OTP sent to your email.")
                 return
@@ -115,7 +117,7 @@ class LoginScreen(Screen):
                 _popup("Error", str(exc))
                 return
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     # -----------------------
     # Verify OTP + Login
@@ -137,6 +139,7 @@ class LoginScreen(Screen):
 
         def work():
             try:
+                Logger.info("API: about to call server")
                 data = api_login_verify_otp(identifier=identifier, password=password, otp=otp)
                 token = data.get("access_token")
                 user = data.get("user") or {}
@@ -156,11 +159,12 @@ class LoginScreen(Screen):
             except ApiError as exc:
                 _popup("Error", str(exc))
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def login_as_guest(self):
         def work():
             try:
+                Logger.info("API: about to call server")
                 data = api_guest()
                 # Guests should not be persisted by default.
                 set_remember_me(False)
@@ -173,4 +177,4 @@ class LoginScreen(Screen):
             except ApiError as exc:
                 _popup("Error", str(exc))
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
