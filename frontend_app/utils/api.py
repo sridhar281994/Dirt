@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import urlsplit
 from typing import Any, Dict
 import requests
 import urllib3
@@ -10,6 +11,9 @@ from frontend_app.utils.storage import get_token
 
 class ApiError(RuntimeError):
     pass
+
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def _base_url() -> str:
@@ -25,6 +29,46 @@ def _headers(auth: bool = False) -> Dict[str, str]:
     return h
 
 
+def _friendly_network_error(exc: BaseException, *, url: str) -> str:
+    """
+    Convert low-level requests/urllib3/socket errors into a human-friendly message.
+    This is especially important on Android where DNS / captive portal / no-data
+    situations are common and would otherwise crash background threads.
+    """
+    try:
+        host = urlsplit(url).netloc or url
+    except Exception:
+        host = url
+
+    # Import here to avoid typing-only dependency differences on some platforms.
+    try:
+        from requests import exceptions as req_exc  # type: ignore
+    except Exception:
+        req_exc = None
+
+    if req_exc:
+        if isinstance(exc, req_exc.Timeout):
+            return f"Request timed out. Check your internet and try again. ({host})"
+        if isinstance(exc, req_exc.SSLError):
+            return f"SSL error while contacting server. ({host})"
+        if isinstance(exc, req_exc.ConnectionError):
+            # Common: DNS failure (UnknownHost / gaierror), airplane mode, no data, captive portal.
+            return f"Can't reach server. Check internet/DNS and try again. ({host})"
+
+    # Fallback: keep it short, but include host so we know which backend is used.
+    return f"Network error contacting server. ({host})"
+
+
+def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
+    """
+    requests.request wrapper that always raises ApiError on network failures.
+    """
+    try:
+        return requests.request(method, url, **kwargs)
+    except requests.RequestException as exc:
+        raise ApiError(_friendly_network_error(exc, url=url)) from exc
+
+
 def _raise(resp: requests.Response) -> None:
     try:
         data = resp.json()
@@ -38,7 +82,8 @@ def _raise(resp: requests.Response) -> None:
 
 
 def api_register(**payload: Any) -> Dict[str, Any]:
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/auth/register",
         json=payload,
         headers=_headers(),
@@ -50,7 +95,8 @@ def api_register(**payload: Any) -> Dict[str, Any]:
 
 
 def api_login_request_otp(*, identifier: str, password: str) -> Dict[str, Any]:
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/auth/login/request-otp",
         json={"identifier": identifier, "password": password},
         headers=_headers(),
@@ -62,7 +108,8 @@ def api_login_request_otp(*, identifier: str, password: str) -> Dict[str, Any]:
 
 
 def api_login_verify_otp(*, identifier: str, password: str, otp: str) -> Dict[str, Any]:
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/auth/login/verify-otp",
         json={"identifier": identifier, "password": password, "otp": otp},
         headers=_headers(),
@@ -74,7 +121,8 @@ def api_login_verify_otp(*, identifier: str, password: str, otp: str) -> Dict[st
 
 
 def api_forgot_password_request_otp(*, identifier: str) -> Dict[str, Any]:
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/auth/forgot-password/request-otp",
         json={"identifier": identifier},
         headers=_headers(),
@@ -86,7 +134,8 @@ def api_forgot_password_request_otp(*, identifier: str) -> Dict[str, Any]:
 
 
 def api_forgot_password_reset(*, identifier: str, otp: str, new_password: str) -> Dict[str, Any]:
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/auth/forgot-password/reset",
         json={"identifier": identifier, "otp": otp, "new_password": new_password},
         headers=_headers(),
@@ -98,7 +147,8 @@ def api_forgot_password_reset(*, identifier: str, otp: str, new_password: str) -
 
 
 def api_guest() -> Dict[str, Any]:
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/auth/guest",
         json={},
         headers=_headers(),
@@ -110,7 +160,8 @@ def api_guest() -> Dict[str, Any]:
 
 
 def api_next_profile(*, preference: str) -> Dict[str, Any]:
-    r = requests.get(
+    r = _request(
+        "GET",
         f"{_base_url()}/api/profiles/next",
         params={"preference": preference},
         headers=_headers(auth=True),
@@ -122,7 +173,8 @@ def api_next_profile(*, preference: str) -> Dict[str, Any]:
 
 
 def api_swipe(*, target_user_id: int, direction: str) -> Dict[str, Any]:
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/profiles/swipe",
         json={"target_user_id": target_user_id, "direction": direction},
         headers=_headers(auth=True),
@@ -134,7 +186,8 @@ def api_swipe(*, target_user_id: int, direction: str) -> Dict[str, Any]:
 
 
 def api_start_session(*, target_user_id: int, mode: str) -> Dict[str, Any]:
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/sessions/start",
         json={"target_user_id": target_user_id, "mode": mode},
         headers=_headers(auth=True),
@@ -146,7 +199,8 @@ def api_start_session(*, target_user_id: int, mode: str) -> Dict[str, Any]:
 
 
 def api_get_messages(*, session_id: int) -> Dict[str, Any]:
-    r = requests.get(
+    r = _request(
+        "GET",
         f"{_base_url()}/api/messages",
         params={"session_id": session_id},
         headers=_headers(auth=True),
@@ -158,7 +212,8 @@ def api_get_messages(*, session_id: int) -> Dict[str, Any]:
 
 
 def api_post_message(*, session_id: int, message: str) -> Dict[str, Any]:
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/messages",
         json={"session_id": session_id, "message": message},
         headers=_headers(auth=True),
@@ -170,7 +225,8 @@ def api_post_message(*, session_id: int, message: str) -> Dict[str, Any]:
 
 
 def api_demo_subscribe() -> Dict[str, Any]:
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/subscription/demo-activate",
         json={},
         headers=_headers(auth=True),
@@ -182,7 +238,8 @@ def api_demo_subscribe() -> Dict[str, Any]:
 
 
 def api_verify_subscription(*, purchase_token: str, plan_key: str) -> bool:
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/subscription/verify",
         json={"purchase_token": purchase_token, "plan_key": plan_key},
         headers=_headers(auth=True),
@@ -194,7 +251,8 @@ def api_verify_subscription(*, purchase_token: str, plan_key: str) -> bool:
 
 
 def api_video_match(*, preference: str = "both") -> Dict[str, Any]:
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/video/match",
         json={"preference": preference},
         headers=_headers(auth=True),
@@ -215,7 +273,8 @@ def api_video_end(*, session_id: int | None = None) -> Dict[str, Any]:
         if sid > 0:
             payload["session_id"] = sid
 
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/video/end",
         json=payload,
         headers=_headers(auth=True),
@@ -227,7 +286,8 @@ def api_video_end(*, session_id: int | None = None) -> Dict[str, Any]:
 
 
 def api_get_public_messages(*, limit: int = 500) -> Dict[str, Any]:
-    r = requests.get(
+    r = _request(
+        "GET",
         f"{_base_url()}/api/public/messages",
         params={"limit": limit},
         headers=_headers(auth=True),
@@ -239,7 +299,8 @@ def api_get_public_messages(*, limit: int = 500) -> Dict[str, Any]:
 
 
 def api_post_public_message(*, message: str, image_url: str = None) -> Dict[str, Any]:
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/public/messages",
         json={"message": message, "image_url": image_url},
         headers=_headers(auth=True),
@@ -251,7 +312,8 @@ def api_post_public_message(*, message: str, image_url: str = None) -> Dict[str,
 
 
 def api_get_history() -> Dict[str, Any]:
-    r = requests.get(
+    r = _request(
+        "GET",
         f"{_base_url()}/api/sessions/history",
         headers=_headers(auth=True),
         timeout=20,
@@ -262,7 +324,8 @@ def api_get_history() -> Dict[str, Any]:
 
 
 def api_report_user(*, reported_user_id: int | None = None, reason: str, details: str | None = None, context: str | None = None) -> Dict[str, Any]:
-    r = requests.post(
+    r = _request(
+        "POST",
         f"{_base_url()}/api/reports",
         json={
             "reported_user_id": reported_user_id,
@@ -285,7 +348,8 @@ def api_update_profile(name: str | None = None, image_url: str | None = None) ->
     if image_url is not None:
         payload["image_url"] = image_url
 
-    r = requests.put(
+    r = _request(
+        "PUT",
         f"{_base_url()}/api/auth/profile",
         json=payload,
         headers=_headers(auth=True),
@@ -311,7 +375,7 @@ def api_upload_profile_image(*, file_path: str) -> Dict[str, Any]:
     try:
         with open(file_path, "rb") as f:
             files = {"file": (os.path.basename(file_path), f, "application/octet-stream")}
-            r = requests.post(url, headers=headers, files=files, timeout=40, verify=False)
+            r = _request("POST", url, headers=headers, files=files, timeout=40, verify=False)
     except FileNotFoundError:
         raise ApiError("Selected file not found.")
 
