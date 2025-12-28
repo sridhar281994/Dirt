@@ -7,6 +7,7 @@ import requests
 import urllib3
 
 from frontend_app.utils.storage import get_token
+from kivy.logger import Logger
 
 
 class ApiError(RuntimeError):
@@ -14,6 +15,10 @@ class ApiError(RuntimeError):
 
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Timeouts: Render (free tiers) can cold-start and exceed small timeouts.
+DEFAULT_TIMEOUT = 30
+LONG_TIMEOUT = 60
 
 
 def _base_url() -> str:
@@ -66,6 +71,12 @@ def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
     try:
         return requests.request(method, url, **kwargs)
     except requests.RequestException as exc:
+        # Include the underlying exception details in logcat for debugging
+        # (UI still shows a friendly message via ApiError).
+        try:
+            Logger.exception("HTTP request failed: %s %s (%r)", method, url, exc)
+        except Exception:
+            pass
         raise ApiError(_friendly_network_error(exc, url=url)) from exc
 
 
@@ -87,7 +98,7 @@ def api_register(**payload: Any) -> Dict[str, Any]:
         f"{_base_url()}/api/auth/register",
         json=payload,
         headers=_headers(),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -100,7 +111,7 @@ def api_login_request_otp(*, identifier: str, password: str) -> Dict[str, Any]:
         f"{_base_url()}/api/auth/login/request-otp",
         json={"identifier": identifier, "password": password},
         headers=_headers(),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -113,7 +124,7 @@ def api_login_verify_otp(*, identifier: str, password: str, otp: str) -> Dict[st
         f"{_base_url()}/api/auth/login/verify-otp",
         json={"identifier": identifier, "password": password, "otp": otp},
         headers=_headers(),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -126,7 +137,7 @@ def api_forgot_password_request_otp(*, identifier: str) -> Dict[str, Any]:
         f"{_base_url()}/api/auth/forgot-password/request-otp",
         json={"identifier": identifier},
         headers=_headers(),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -139,7 +150,7 @@ def api_forgot_password_reset(*, identifier: str, otp: str, new_password: str) -
         f"{_base_url()}/api/auth/forgot-password/reset",
         json={"identifier": identifier, "otp": otp, "new_password": new_password},
         headers=_headers(),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -152,7 +163,7 @@ def api_guest() -> Dict[str, Any]:
         f"{_base_url()}/api/auth/guest",
         json={},
         headers=_headers(),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -165,7 +176,7 @@ def api_next_profile(*, preference: str) -> Dict[str, Any]:
         f"{_base_url()}/api/profiles/next",
         params={"preference": preference},
         headers=_headers(auth=True),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -178,7 +189,7 @@ def api_swipe(*, target_user_id: int, direction: str) -> Dict[str, Any]:
         f"{_base_url()}/api/profiles/swipe",
         json={"target_user_id": target_user_id, "direction": direction},
         headers=_headers(auth=True),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -191,7 +202,7 @@ def api_start_session(*, target_user_id: int, mode: str) -> Dict[str, Any]:
         f"{_base_url()}/api/sessions/start",
         json={"target_user_id": target_user_id, "mode": mode},
         headers=_headers(auth=True),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -204,7 +215,7 @@ def api_get_messages(*, session_id: int) -> Dict[str, Any]:
         f"{_base_url()}/api/messages",
         params={"session_id": session_id},
         headers=_headers(auth=True),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -217,7 +228,7 @@ def api_post_message(*, session_id: int, message: str) -> Dict[str, Any]:
         f"{_base_url()}/api/messages",
         json={"session_id": session_id, "message": message},
         headers=_headers(auth=True),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -230,7 +241,7 @@ def api_demo_subscribe() -> Dict[str, Any]:
         f"{_base_url()}/api/subscription/demo-activate",
         json={},
         headers=_headers(auth=True),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -243,7 +254,7 @@ def api_verify_subscription(*, purchase_token: str, plan_key: str) -> bool:
         f"{_base_url()}/api/subscription/verify",
         json={"purchase_token": purchase_token, "plan_key": plan_key},
         headers=_headers(auth=True),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -256,7 +267,7 @@ def api_video_match(*, preference: str = "both") -> Dict[str, Any]:
         f"{_base_url()}/api/video/match",
         json={"preference": preference},
         headers=_headers(auth=True),
-        timeout=20,
+        timeout=LONG_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -278,7 +289,7 @@ def api_video_end(*, session_id: int | None = None) -> Dict[str, Any]:
         f"{_base_url()}/api/video/end",
         json=payload,
         headers=_headers(auth=True),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -291,7 +302,7 @@ def api_get_public_messages(*, limit: int = 500) -> Dict[str, Any]:
         f"{_base_url()}/api/public/messages",
         params={"limit": limit},
         headers=_headers(auth=True),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -304,7 +315,7 @@ def api_post_public_message(*, message: str, image_url: str = None) -> Dict[str,
         f"{_base_url()}/api/public/messages",
         json={"message": message, "image_url": image_url},
         headers=_headers(auth=True),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -316,7 +327,7 @@ def api_get_history() -> Dict[str, Any]:
         "GET",
         f"{_base_url()}/api/sessions/history",
         headers=_headers(auth=True),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -334,7 +345,7 @@ def api_report_user(*, reported_user_id: int | None = None, reason: str, details
             "context": context
         },
         headers=_headers(auth=True),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
@@ -353,7 +364,7 @@ def api_update_profile(name: str | None = None, image_url: str | None = None) ->
         f"{_base_url()}/api/auth/profile",
         json=payload,
         headers=_headers(auth=True),
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         verify=False,
     )
     _raise(r)
