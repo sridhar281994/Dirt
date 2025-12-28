@@ -127,3 +127,8 @@ else:
     def root():
         return {"status": "Backend running"}
 
+    @app.get("/ping")
+    def ping():
+        # Used by mobile clients to wake up Render/PAAS cold starts before real API calls.
+        return {"status": "ok"}
+
