@@ -12,6 +12,9 @@ from frontend_app.utils.api import api_get_history, ApiError
 from frontend_app.utils.storage import get_last_read_message_id, get_user
 
 class UserMatchScreen(Screen):
+    # Avoid rendering huge histories in a single frame.
+    DISPLAY_LIMIT = 60
+
     def on_pre_enter(self, *args):
         self.refresh_history()
 
@@ -32,6 +35,7 @@ class UserMatchScreen(Screen):
             return
         box.clear_widgets()
 
+        history = list(history or [])[-int(self.DISPLAY_LIMIT) :]
         if not history:
             lbl = Label(text="No messages yet.", size_hint_y=None, height=dp(40), color=(0.8, 0.8, 0.8, 1))
             box.add_widget(lbl)

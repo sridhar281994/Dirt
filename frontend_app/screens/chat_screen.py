@@ -27,6 +27,12 @@ class ChatScreen(Screen):
     mode = StringProperty("text")
     target_user_id = NumericProperty(0)
 
+    # Rendering a large chat history in one frame can cause:
+    #   [CRITICAL] [Clock] Warning, too much iteration done before the next frame...
+    # Limit + chunk rendering across frames to keep layouts stable.
+    DISPLAY_LIMIT = 150
+    RENDER_CHUNK = 30
+
     def set_session(self, *, session_id: int, mode: str, target_user_id: int = 0):
         self.session_id = int(session_id)
         self.mode = mode
@@ -59,7 +65,7 @@ class ChatScreen(Screen):
         def work():
             try:
                 data = api_get_messages(session_id=sid)
-                msgs = data.get("messages") or []
+                msgs = list(data.get("messages") or [])
 
                 def render(*_):
                     box = self.ids.get("messages_box")
@@ -75,48 +81,69 @@ class ChatScreen(Screen):
                         if mid > max_id:
                             max_id = mid
 
-                        try:
-                            sender_id = int(m.get("sender_id") or 0)
-                        except Exception:
-                            sender_id = 0
-                        text = str(m.get("message") or "")
-                        is_unread = bool(mid and mid > last_read and (my_id and sender_id != my_id))
+                    # Render only the latest messages, and do it in chunks across frames
+                    # to avoid Clock iteration warnings on large histories.
+                    msgs_to_render = msgs[-int(self.DISPLAY_LIMIT) :] if msgs else []
+                    idx = 0
 
-                        who = "Me" if (my_id and sender_id == my_id) else "Partner"
-                        prefix = f"[b]{who}[/b]: "
-                        if is_unread:
-                            msg_text = f"[b]{prefix}{text}[/b]"
-                            color = (1, 1, 1, 1)
-                        else:
-                            msg_text = f"{prefix}{text}"
-                            color = (0.85, 0.85, 0.85, 1)
+                    def _render_chunk(_dt):
+                        nonlocal idx
+                        end = min(idx + int(self.RENDER_CHUNK), len(msgs_to_render))
+                        for m in msgs_to_render[idx:end]:
+                            try:
+                                mid = int(m.get("id") or 0)
+                            except Exception:
+                                mid = 0
+                            try:
+                                sender_id = int(m.get("sender_id") or 0)
+                            except Exception:
+                                sender_id = 0
 
-                        lbl = Label(
-                            text=msg_text,
-                            markup=True,
-                            size_hint_y=None,
-                            height=dp(24),
-                            size_hint_x=1,
-                            halign="left",
-                            valign="middle",
-                            text_size=(box.width, None),
-                            color=color,
-                        )
-                        lbl.bind(width=lambda inst, w: setattr(inst, "text_size", (w, None)))
-                        lbl.bind(texture_size=lambda inst, s: setattr(inst, "height", s[1] + dp(8)))
-                        box.add_widget(lbl)
+                            text = str(m.get("message") or "")
+                            is_unread = bool(mid and mid > last_read and (my_id and sender_id != my_id))
 
-                    # Scroll to bottom (latest).
-                    scroll = self.ids.get("messages_scroll")
-                    if scroll is not None:
-                        try:
-                            scroll.scroll_y = 0
-                        except Exception:
-                            pass
+                            who = "Me" if (my_id and sender_id == my_id) else "Partner"
+                            prefix = f"[b]{who}[/b]: "
+                            if is_unread:
+                                msg_text = f"[b]{prefix}{text}[/b]"
+                                color = (1, 1, 1, 1)
+                            else:
+                                msg_text = f"{prefix}{text}"
+                                color = (0.85, 0.85, 0.85, 1)
 
-                    # Mark everything up to the latest message as read (local-only).
-                    if max_id > 0:
-                        set_last_read_message_id(session_id=sid, message_id=max_id)
+                            lbl = Label(
+                                text=msg_text,
+                                markup=True,
+                                size_hint_y=None,
+                                height=dp(24),
+                                size_hint_x=1,
+                                halign="left",
+                                valign="middle",
+                                text_size=(box.width, None),
+                                color=color,
+                            )
+                            lbl.bind(width=lambda inst, w: setattr(inst, "text_size", (w, None)))
+                            lbl.bind(texture_size=lambda inst, s: setattr(inst, "height", s[1] + dp(8)))
+                            box.add_widget(lbl)
+
+                        idx = end
+                        if idx < len(msgs_to_render):
+                            Clock.schedule_once(_render_chunk, 0)
+                            return
+
+                        # Scroll to bottom (latest) once the final chunk has been added.
+                        scroll = self.ids.get("messages_scroll")
+                        if scroll is not None:
+                            try:
+                                scroll.scroll_y = 0
+                            except Exception:
+                                pass
+
+                        # Mark everything up to the latest message as read (local-only).
+                        if max_id > 0:
+                            set_last_read_message_id(session_id=sid, message_id=max_id)
+
+                    Clock.schedule_once(_render_chunk, 0)
 
                 Clock.schedule_once(render, 0)
             except ApiError as exc:
