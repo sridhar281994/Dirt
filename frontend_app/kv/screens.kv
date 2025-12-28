@@ -54,7 +54,7 @@
                 size_hint_y: None
                 halign: "center"
                 valign: "middle"
-                text_size: self.width, None
+                text_size: (self.width, None)
                 height: self.texture_size[1] + dp(20)
 
             Button:
@@ -122,8 +122,8 @@
                     color: 1, 1, 1, 1
                     halign: "center"
                     valign: "middle"
-                    text_size: self.width, None
                     size_hint_y: None
+                    text_size: (self.width, None)
                     height: self.texture_size[1] + dp(10)
 
                 # Account Details Box
@@ -1195,7 +1195,7 @@
                 Image:
                     source: "atlas://data/images/defaulttheme/spinner"
                     size_hint: None, None
-                    size: self.parent.size
+                    size: dp(70), dp(70)
                     pos: 0, 0
 
             # "Connecting..." overlay when no match
@@ -1420,8 +1420,7 @@
             # Rotate preview on Android to match portrait UI.
             Scatter:
                 id: local_preview_scatter
-                size_hint: None, None
-                size: self.parent.size
+                size_hint: 1, 1
                 pos: 0, 0
                 do_translation: False
                 do_scale: False
@@ -1482,7 +1481,9 @@
                 halign: "center"
                 valign: "middle"
                 # Avoid feeding label height back into its own text layout.
-                text_size: self.width, None
+                size_hint_y: None
+                text_size: (self.width, None)
+                height: self.texture_size[1] + dp(10)
 
         ####################################################################
         # LOADING SPINNER
@@ -1500,9 +1501,8 @@
 
             Image:
                 source: "atlas://data/images/defaulttheme/spinner"
-                # IMPORTANT: bind to parent, not to self (self-referential bindings
-                # can trigger repeated relayout/Clock iteration warnings on some devices)
-                size: self.parent.size
+                size_hint: None, None
+                size: dp(70), dp(70)
                 pos: 0, 0
 
         Label:
@@ -1512,7 +1512,9 @@
             pos_hint: {"center_x": 0.5, "center_y": 0.45}
             halign: "center"
             valign: "middle"
-            text_size: self.width, None
+            size_hint_y: None
+            text_size: (self.width, None)
+            height: self.texture_size[1] + dp(10)
 
         ####################################################################
         # CHAT OVERLAY
@@ -1600,7 +1602,9 @@
                 color: 1, 1, 1, 1
                 halign: "left"
                 valign: "middle"
-                text_size: self.width, None
+                size_hint_y: None
+                height: dp(50)
+                text_size: (self.width, None)
 
             Label:
                 text: "● CONNECTING" if root.show_loading else "● READY"
@@ -1611,7 +1615,9 @@
                 bold: True
                 halign: "right"
                 valign: "middle"
-                text_size: self.width, None
+                size_hint_y: None
+                height: dp(50)
+                text_size: (self.width, None)
 
         ####################################################################
         # BOTTOM CONTROLS
