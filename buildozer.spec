@@ -108,8 +108,13 @@ android.add_gradle_repositories = mavenCentral()
 # Prefer AAB for smaller Play distribution (still can build APK for debugging).
 android.release_artifact = aab
 
-# (int) Target Android API, should be as high as possible.
-android.api = 31
+# (int) Target Android API (compileSdk/targetSdk for the Gradle project).
+#
+# Some AndroidX libraries (e.g. `androidx.security:security-crypto:1.1.0-alpha06`)
+# require compileSdk >= 33 and will fail CI with:
+#   Execution failed for task ':checkDebugAarMetadata'
+# if this is too low.
+android.api = 34
 
 # (int) Minimum API your APK will support.
 android.minapi = 21
