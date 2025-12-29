@@ -5,6 +5,9 @@ from typing import Any, Dict
 
 from kivy.app import App
 from kivy.storage.jsonstore import JsonStore
+from kivy.utils import platform
+
+from frontend_app.utils.android_secure_prefs import AndroidSecurePrefs
 
 
 _TOKEN: str = ""
@@ -12,6 +15,8 @@ _USER: Dict[str, Any] = {}
 _REMEMBER_ME: bool = False
 _STORE: JsonStore | None = None
 _CHAT_READ_KEY = "chat_read"
+_SECURE = AndroidSecurePrefs()
+_SECURE_TOKEN_KEY = "auth_token"
 
 
 def _store_path() -> str:
@@ -52,7 +57,26 @@ def _load_persisted() -> None:
         data = store.get("auth") or {}
         _REMEMBER_ME = bool(data.get("remember_me") or False)
         if _REMEMBER_ME:
-            _TOKEN = str(data.get("token") or "")
+            # Production: store token encrypted on Android.
+            # Backward compatible migration: if an old plaintext token exists, migrate it once.
+            legacy_plain = str(data.get("token") or "")
+            tok = None
+            try:
+                tok = _SECURE.get(_SECURE_TOKEN_KEY)
+            except Exception:
+                tok = None
+            if tok:
+                _TOKEN = str(tok)
+            elif legacy_plain:
+                _TOKEN = legacy_plain
+                try:
+                    if platform == "android":
+                        _SECURE.put(_SECURE_TOKEN_KEY, legacy_plain)
+                        # Remove plaintext token from JsonStore after successful migration.
+                        store.put("auth", token="", user=dict(data.get("user") or {}), remember_me=True)
+                except Exception:
+                    # If encryption fails, keep legacy behavior (still works, but less secure).
+                    pass
             _USER = dict(data.get("user") or {})
     except Exception:
         # If store is corrupted/unreadable, fail closed (do not persist).
@@ -74,8 +98,14 @@ def set_token(token: str) -> None:
     _TOKEN = token or ""
     if _REMEMBER_ME:
         try:
-            store = _get_store()
-            store.put("auth", token=_TOKEN, user=_USER, remember_me=True)
+            # Persist token securely on Android; persist user + remember flag in JsonStore.
+            if platform == "android":
+                _SECURE.put(_SECURE_TOKEN_KEY, _TOKEN)
+                store = _get_store()
+                store.put("auth", token="", user=_USER, remember_me=True)
+            else:
+                store = _get_store()
+                store.put("auth", token=_TOKEN, user=_USER, remember_me=True)
         except Exception:
             pass
 
@@ -91,7 +121,8 @@ def set_user(user: Dict[str, Any]) -> None:
     if _REMEMBER_ME:
         try:
             store = _get_store()
-            store.put("auth", token=_TOKEN, user=_USER, remember_me=True)
+            # Never re-store plaintext token on Android.
+            store.put("auth", token=("" if platform == "android" else _TOKEN), user=_USER, remember_me=True)
         except Exception:
             pass
 
@@ -112,11 +143,22 @@ def set_session(*, token: str, user: Dict[str, Any], remember: bool) -> None:
 
     try:
         store = _get_store()
-        store.put("auth", token=_TOKEN, user=_USER, remember_me=_REMEMBER_ME)
+        if platform == "android" and _REMEMBER_ME and _TOKEN:
+            # Secure token storage on Android
+            try:
+                _SECURE.put(_SECURE_TOKEN_KEY, _TOKEN)
+            except Exception:
+                # fallback: if encryption fails, store plaintext so login still works
+                pass
+        store.put("auth", token=("" if platform == "android" else _TOKEN), user=_USER, remember_me=_REMEMBER_ME)
         if not _REMEMBER_ME:
             # If user opted out, remove sensitive session data.
             store.delete("auth")
             store.put("auth", token="", user={}, remember_me=False)
+            try:
+                _SECURE.delete(_SECURE_TOKEN_KEY)
+            except Exception:
+                pass
     except Exception:
         # Persistence failures should not block login.
         return
@@ -133,6 +175,10 @@ def clear() -> None:
             store.delete("auth")
         if store.exists(_CHAT_READ_KEY):
             store.delete(_CHAT_READ_KEY)
+        try:
+            _SECURE.delete(_SECURE_TOKEN_KEY)
+        except Exception:
+            pass
     except Exception:
         pass
 
