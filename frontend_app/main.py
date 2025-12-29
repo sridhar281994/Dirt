@@ -79,14 +79,20 @@ class ChatApp(App):
         """
         try:
             content = BoxLayout(orientation="vertical", spacing=12, padding=12)
-            content.add_widget(
-                Label(
-                    text="Buddymeet needs Camera + Microphone permissions for video calls.\n\n"
-                    "Tap Settings to enable them, then return to the app.",
-                    halign="left",
-                    valign="middle",
-                )
+            # Responsive message: wrap text inside popup on all screen sizes.
+            msg = Label(
+                text=(
+                    "Buddymeet needs Camera and Microphone permissions for video calls.\n"
+                    "Tap Settings to enable them, then return to the app."
+                ),
+                halign="left",
+                valign="top",
+                size_hint=(1, None),
             )
+            # Wrap to available width and grow vertically to fit.
+            msg.bind(width=lambda inst, w: setattr(inst, "text_size", (w, None)))
+            msg.bind(texture_size=lambda inst, s: setattr(inst, "height", s[1]))
+            content.add_widget(msg)
             btn_row = BoxLayout(size_hint_y=None, height=44, spacing=10)
             btn_settings = Button(text="Settings")
             btn_close = Button(text="Close")
@@ -97,7 +103,7 @@ class ChatApp(App):
             popup = Popup(
                 title="Permissions required",
                 content=content,
-                size_hint=(0.85, 0.4),
+                size_hint=(0.9, 0.35),
                 auto_dismiss=False,
             )
 
