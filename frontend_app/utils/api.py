@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 from typing import Any, Dict, Tuple
 import requests
 import urllib3
+import certifi
 
 from frontend_app.utils.storage import get_token
 
@@ -24,7 +25,9 @@ _last_warmup_monotonic: float = 0.0
 
 
 def _base_url() -> str:
-    return "https://dirt-0atr.onrender.com"
+    # Keep this configurable for dev/staging builds (Android supports env vars too, but
+    # this mainly helps desktop testing and CI).
+    return (os.getenv("BACKEND_URL") or "https://dirt-0atr.onrender.com").rstrip("/")
 
 
 def _headers(auth: bool = False) -> Dict[str, str]:
@@ -84,7 +87,8 @@ def _maybe_warmup(*, force: bool = False) -> None:
     url = f"{_base_url()}{_PING_PATH}"
     # Best-effort warmup: if it fails, the subsequent call will surface the error.
     try:
-        requests.get(url, timeout=_DEFAULT_TIMEOUT, verify=False)
+        # Use certifi explicitly; packaged Android builds sometimes don't find system CAs reliably.
+        requests.get(url, timeout=_DEFAULT_TIMEOUT, verify=certifi.where())
         _last_warmup_monotonic = now
     except Exception:
         # Don't raise here; let the main request's retry/timeout handling decide messaging.
@@ -102,9 +106,9 @@ def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
         timeout = (float(_DEFAULT_TIMEOUT[0]), float(timeout))
     kwargs["timeout"] = timeout
 
-    # Default to verify=False to avoid platform CA issues in packaged mobile builds.
-    # (For production, prefer verify=True and include proper CA certs.)
-    kwargs.setdefault("verify", True)
+    # Always point requests at certifi's CA bundle explicitly; this is more reliable in
+    # packaged Android builds than relying on system CA discovery.
+    kwargs.setdefault("verify", certifi.where())
 
     # Warm up Render/PAAS backend before the "real" call.
     try:

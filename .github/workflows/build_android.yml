@@ -17,6 +17,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Prevent checkout from writing auth headers into .git/config (this can
+          # break when Docker-based actions have created root-owned files).
+          persist-credentials: false
 
       - name: Free Disk Space
         run: |
@@ -97,6 +101,13 @@ jobs:
               fi
             done
           buildozer_version: master
+
+      - name: Fix workspace permissions (post Docker)
+        if: always()
+        run: |
+          # Docker-based actions run as root and can leave the workspace and/or
+          # .git/ files owned by root, which breaks later GitHub Actions cleanup.
+          sudo chown -R "$USER:$USER" "$GITHUB_WORKSPACE"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

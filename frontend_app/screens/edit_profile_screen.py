@@ -209,7 +209,8 @@ class EditProfileScreen(Screen):
     def _fallback_avatar_url(name: str) -> str:
         import urllib.parse
         n = (name or "User").strip() or "User"
-        return "http://ui-avatars.com/api/?" + urllib.parse.urlencode(
+        # Use https: Android blocks cleartext http by default on newer versions.
+        return "https://ui-avatars.com/api/?" + urllib.parse.urlencode(
             {"name": n, "background": "222222", "color": "ffffff", "size": "512", "bold": "true"}
         )
     
