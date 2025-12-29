@@ -254,9 +254,9 @@ class StartVideoDateScreen(Screen):
             self._spin_ev = None
 
     def _spin(self, _dt):
-        sp = self.ids.get("loading_spinner")
-        if sp:
-            sp.rotation = (sp.rotation + 10) % 360
+        img = self.ids.get("spinner_img")
+        if img:
+            img.angle = (img.angle + 10) % 360
 
     def start_search(self, *, preference: str) -> None:
         self.preference = preference
