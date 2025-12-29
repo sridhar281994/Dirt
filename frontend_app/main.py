@@ -28,6 +28,9 @@ from kivy.lang import Builder
 from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.label import Label
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
+from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.clock import Clock
 from kivy.logger import Logger
@@ -40,6 +43,83 @@ class WelcomeScreen(Screen):
     pass
 
 class ChatApp(App):
+    def _open_android_app_settings(self) -> None:
+        """
+        Best-effort open this app's Settings page (Android).
+
+        Needed when the user previously denied a permission with "Don't ask again"
+        and Android stops showing the system permission dialog.
+        """
+        if platform != "android":
+            return
+        try:
+            from jnius import autoclass, cast  # type: ignore
+
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            activity = PythonActivity.mActivity
+            if activity is None:
+                return
+
+            Intent = autoclass("android.content.Intent")
+            Settings = autoclass("android.provider.Settings")
+            Uri = autoclass("android.net.Uri")
+
+            pkg = activity.getPackageName()
+            uri = Uri.parse("package:" + str(pkg))
+            intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, uri)
+            # New task avoids issues when called from non-activity contexts.
+            intent.addFlags(int(Intent.FLAG_ACTIVITY_NEW_TASK))
+            activity.startActivity(intent)
+        except Exception:
+            Logger.exception("Failed to open Android app settings")
+
+    def _popup_permissions_required(self) -> None:
+        """
+        Show an in-app explanation + Settings shortcut if permissions are denied.
+        """
+        try:
+            content = BoxLayout(orientation="vertical", spacing=12, padding=12)
+            content.add_widget(
+                Label(
+                    text="Buddymeet needs Camera + Microphone permissions for video calls.\n\n"
+                    "Tap Settings to enable them, then return to the app.",
+                    halign="left",
+                    valign="middle",
+                )
+            )
+            btn_row = BoxLayout(size_hint_y=None, height=44, spacing=10)
+            btn_settings = Button(text="Settings")
+            btn_close = Button(text="Close")
+            btn_row.add_widget(btn_settings)
+            btn_row.add_widget(btn_close)
+            content.add_widget(btn_row)
+
+            popup = Popup(
+                title="Permissions required",
+                content=content,
+                size_hint=(0.85, 0.4),
+                auto_dismiss=False,
+            )
+
+            def _go_settings(*_):
+                try:
+                    popup.dismiss()
+                except Exception:
+                    pass
+                self._open_android_app_settings()
+
+            def _close(*_):
+                try:
+                    popup.dismiss()
+                except Exception:
+                    pass
+
+            btn_settings.bind(on_release=_go_settings)
+            btn_close.bind(on_release=_close)
+            popup.open()
+        except Exception:
+            Logger.exception("Failed to show permissions popup")
+
     def build(self):
         self.title = "Buddymeet"
         # Some screens render dynamic lists (chat/history). On slower devices,
@@ -162,7 +242,7 @@ class ChatApp(App):
             except Exception:
                 pass
 
-            from android.permissions import Permission, request_permissions  # type: ignore
+            from android.permissions import Permission, request_permissions, check_permission  # type: ignore
 
             perms = [Permission.CAMERA, Permission.RECORD_AUDIO]
 
@@ -172,8 +252,30 @@ class ChatApp(App):
                     Logger.info("Permissions: %s", pairs)
                 except Exception:
                     Logger.exception("Permissions callback failed")
+                # If still not granted (denied or "Don't ask again"), show a
+                # user-facing prompt with a Settings shortcut.
+                def _after(*_):
+                    try:
+                        cam_ok = bool(check_permission(Permission.CAMERA))
+                        mic_ok = bool(check_permission(Permission.RECORD_AUDIO))
+                    except Exception:
+                        cam_ok = False
+                        mic_ok = False
+                    if not (cam_ok and mic_ok):
+                        self._popup_permissions_required()
 
-            request_permissions(perms, _on_permissions_result)
+                Clock.schedule_once(_after, 0)
+
+            # Only triggers Android's system popup if not already granted.
+            try:
+                cam_ok = bool(check_permission(Permission.CAMERA))
+                mic_ok = bool(check_permission(Permission.RECORD_AUDIO))
+            except Exception:
+                cam_ok = False
+                mic_ok = False
+
+            if not (cam_ok and mic_ok):
+                request_permissions(perms, _on_permissions_result)
         except Exception:
             # Make startup failures visible in logcat.
             Logger.exception("Permission request failed during on_start()")
