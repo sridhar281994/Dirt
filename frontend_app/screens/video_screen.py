@@ -10,6 +10,7 @@ from kivy.properties import BooleanProperty, NumericProperty, StringProperty
 from kivy.uix.screenmanager import Screen
 from kivy.utils import platform
 from kivy.logger import Logger
+from kivy.core.window import Window
 
 from frontend_app.utils.api import ApiError, api_video_match, api_video_end, api_get_messages, api_post_message
 from frontend_app.utils.android_camera import get_android_camera_ids
@@ -287,8 +288,23 @@ class VideoScreen(Screen):
         """
         Update preview rotation/mirroring based on active camera.
         """
-        # User requested: "Camera must not rotate."
-        self.local_preview_rotation = 0
+        # Default: no rotation.
+        rotation = 0
+
+        # Android: Kivy's legacy Camera backend often delivers frames in landscape.
+        # When our app UI is portrait (see buildozer.spec), that appears "rotated".
+        # We correct by rotating the preview container in KV.
+        if platform == "android":
+            try:
+                is_portrait = float(getattr(Window, "height", 0) or 0) >= float(getattr(Window, "width", 0) or 0)
+            except Exception:
+                is_portrait = True
+            if is_portrait:
+                # Kivy Scatter rotation is counter-clockwise; most Android camera previews
+                # need a clockwise 90° correction in portrait.
+                rotation = -90
+
+        self.local_preview_rotation = rotation
         
         # Keep mirroring for front camera.
         is_front = int(self.active_camera_index or 0) == int(self.front_camera_index or 1)
@@ -481,9 +497,75 @@ class VideoScreen(Screen):
 
     def _schedule_preview_portrait_autofix(self) -> None:
         """
-        Disabled auto-fix as user requested "Camera must not rotate".
+        Auto-adjust preview rotation once a real camera frame arrives.
+
+        Why:
+        On some Android devices the camera backend already compensates orientation,
+        so forcing a fixed rotation can be wrong. We use a simple heuristic based on
+        texture size vs widget box size and only apply a rotation when it looks swapped.
         """
-        return
+        if platform != "android":
+            return
+        if self._preview_autofix_ev is not None:
+            return
+
+        def _check(_dt):
+            # Stop checking if we left the screen or preview is stopped.
+            if not self.get_parent_window():
+                self._preview_autofix_ev = None
+                return False
+            if not (bool(self.camera_permission_granted) and bool(self.camera_should_play)):
+                self._preview_autofix_ev = None
+                return False
+
+            cam = self.ids.get("local_camera")
+            box = self.ids.get("local_preview")
+            if cam is None or box is None:
+                self._preview_autofix_ev = None
+                return False
+
+            try:
+                tex = getattr(cam, "texture", None)
+                if tex is None:
+                    return True
+                tw, th = float(tex.size[0]), float(tex.size[1])
+            except Exception:
+                return True
+
+            if tw <= 0 or th <= 0:
+                return True
+
+            try:
+                bw, bh = float(box.width or 0), float(box.height or 0)
+            except Exception:
+                bw, bh = 0.0, 0.0
+            if bw <= 0 or bh <= 0:
+                return True
+
+            tex_is_landscape = tw >= th
+            box_is_portrait = bh >= bw
+
+            # If the texture aspect is "opposite" the box aspect, we likely need 90°.
+            if tex_is_landscape and box_is_portrait:
+                self.local_preview_rotation = -90
+            elif (not tex_is_landscape) and (not box_is_portrait):
+                self.local_preview_rotation = -90
+            else:
+                self.local_preview_rotation = 0
+
+            # Apply mirroring again (front/back may have changed).
+            try:
+                is_front = int(self.active_camera_index or 0) == int(self.front_camera_index or 1)
+            except Exception:
+                is_front = False
+            self.local_preview_scale_x = -1 if is_front else 1
+            self.is_front_camera = bool(is_front)
+
+            self._preview_autofix_ev = None
+            return False
+
+        # Try for a short period; usually a texture arrives quickly.
+        self._preview_autofix_ev = Clock.schedule_interval(_check, 0.25)
 
     def _refresh_android_permission_state(self) -> None:
         if platform != "android":
