@@ -16,7 +16,7 @@ class ApiError(RuntimeError):
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-_DEFAULT_TIMEOUT: Tuple[float, float] = (10.0, 30.0)  # (connect, read)
+_DEFAULT_TIMEOUT: Tuple[float, float] = (15.0, 45.0)  # (connect, read)
 _UPLOAD_TIMEOUT: Tuple[float, float] = (10.0, 40.0)
 _PING_PATH = "/ping"
 _WARMUP_MIN_INTERVAL_S = 5 * 60  # don't ping on every request
@@ -24,7 +24,7 @@ _last_warmup_monotonic: float = 0.0
 
 
 def _base_url() -> str:
-    return os.getenv("BACKEND_URL", "https://dirt-0atr.onrender.com").rstrip("/")
+    return "https://dirt-0atr.onrender.com"
 
 
 def _headers(auth: bool = False) -> Dict[str, str]:
@@ -104,7 +104,7 @@ def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
 
     # Default to verify=False to avoid platform CA issues in packaged mobile builds.
     # (For production, prefer verify=True and include proper CA certs.)
-    kwargs.setdefault("verify", False)
+    kwargs.setdefault("verify", True)
 
     # Warm up Render/PAAS backend before the "real" call.
     try:
