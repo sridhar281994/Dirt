@@ -113,7 +113,10 @@ class LoginScreen(Screen):
                     0,
                 )
             except ApiError as exc:
-                Clock.schedule_once(lambda *_: _popup("Error", str(exc)), 0)
+                # Don't close over `exc` inside a scheduled callback: Python clears
+                # exception variables after the except block, causing NameError later.
+                msg = str(exc)
+                Clock.schedule_once(lambda *_dt, msg=msg: _popup("Error", msg), 0)
 
         Thread(target=work, daemon=True).start()
 
@@ -155,7 +158,8 @@ class LoginScreen(Screen):
                 Clock.schedule_once(after, 0)
 
             except ApiError as exc:
-                Clock.schedule_once(lambda *_: _popup("Error", str(exc)), 0)
+                msg = str(exc)
+                Clock.schedule_once(lambda *_dt, msg=msg: _popup("Error", msg), 0)
 
         Thread(target=work, daemon=True).start()
 
@@ -172,6 +176,7 @@ class LoginScreen(Screen):
                 )
                 Clock.schedule_once(lambda *_: setattr(self.manager, "current", "choose"), 0)
             except ApiError as exc:
-                Clock.schedule_once(lambda *_: _popup("Error", str(exc)), 0)
+                msg = str(exc)
+                Clock.schedule_once(lambda *_dt, msg=msg: _popup("Error", msg), 0)
 
         Thread(target=work, daemon=True).start()
