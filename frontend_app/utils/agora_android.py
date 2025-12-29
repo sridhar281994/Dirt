@@ -112,7 +112,8 @@ class AgoraAndroidClient:
                 pass
             try:
                 # Keep it non-opaque so overlays can blend if needed.
-                tv.setOpaque(False)
+                # tv.setOpaque(False)
+                pass
             except Exception:
                 pass
             return tv
@@ -342,6 +343,13 @@ class AgoraAndroidClient:
                 remote_view = self._create_video_view()
                 if remote_view is None:
                     return
+                
+                # Ensure opaque (important for video rendering on some devices)
+                try:
+                    remote_view.setOpaque(True)
+                except Exception:
+                    pass
+
                 params = FrameLayoutLayoutParams(
                     int(FrameLayoutLayoutParams.MATCH_PARENT),
                     int(FrameLayoutLayoutParams.MATCH_PARENT),
@@ -352,9 +360,18 @@ class AgoraAndroidClient:
                     remote_view.bringToFront()
                 except Exception:
                     pass
-                if int(uid or 0) > 0:
+                
+                u = int(uid or 0)
+                if u > 0:
+                    # RENDER_MODE_HIDDEN = 1
+                    mode = 1
+                    try:
+                        mode = int(VideoCanvas.RENDER_MODE_HIDDEN)
+                    except Exception:
+                        pass
+                    
                     self._engine.setupRemoteVideo(
-                        VideoCanvas(remote_view, int(VideoCanvas.RENDER_MODE_HIDDEN), int(uid))
+                        VideoCanvas(remote_view, mode, u)
                     )
                 self._remote_view = remote_view
             except Exception:
@@ -398,7 +415,15 @@ class AgoraAndroidClient:
                     local_view.bringToFront()
                 except Exception:
                     pass
-                self._engine.setupLocalVideo(VideoCanvas(local_view, int(VideoCanvas.RENDER_MODE_HIDDEN), int(uid)))
+                
+                # RENDER_MODE_HIDDEN = 1
+                mode = 1
+                try:
+                    mode = int(VideoCanvas.RENDER_MODE_HIDDEN)
+                except Exception:
+                    pass
+                
+                self._engine.setupLocalVideo(VideoCanvas(local_view, mode, int(uid)))
                 self._local_view = local_view
             except Exception:
                 Logger.exception("AgoraAndroidClient: failed adding local view")
