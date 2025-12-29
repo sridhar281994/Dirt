@@ -100,7 +100,7 @@ android.permissions = INTERNET,CAMERA,RECORD_AUDIO,MODIFY_AUDIO_SETTINGS,ACCESS_
 # Agora RTC SDK (Android)
 # NOTE: Agora 4.5.0 publishes `full-sdk` on Maven Central; `rtc-sdk` is not
 # available there, which caused CI Gradle resolution failures.
-android.gradle_dependencies = io.agora.rtc:full-sdk:4.5.0
+android.gradle_dependencies = io.agora.rtc:full-sdk:4.5.0,androidx.security:security-crypto:1.1.0-alpha06
 
 # Gradle repositories required to resolve Agora artifacts.
 android.add_gradle_repositories = mavenCentral()
