@@ -172,6 +172,6 @@ class LoginScreen(Screen):
                 )
                 Clock.schedule_once(lambda *_: setattr(self.manager, "current", "choose"), 0)
             except ApiError as exc:
-                _popup("Error", str(exc))
+            Clock.schedule_once(lambda *_: _popup("Error", str(exc)), 0)
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
