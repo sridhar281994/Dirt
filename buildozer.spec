@@ -47,7 +47,7 @@ version = 0.1
 # comma separated e.g. requirements = sqlite3,kivy
 #
 # Keep requirements minimal to reduce APK/AAB size.
-requirements = python3,kivy,pillow,requests,pyjnius
+requirements = python3,kivy,requests,pyjnius
 
 # Extra python-for-android flags.
 #
