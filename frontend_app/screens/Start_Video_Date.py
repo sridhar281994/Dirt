@@ -85,8 +85,17 @@ class StartVideoDateScreen(Screen):
         - The preview must NOT be rotated (upright, "same as live").
         - Front camera may be mirrored (selfie-style), but no rotation.
         """
-        # No rotation anywhere.
-        self.local_preview_rotation = 0
+        rotation = 0
+        if platform == "android":
+             try:
+                from kivy.core.window import Window
+                is_portrait = Window.height >= Window.width
+                if is_portrait:
+                    rotation = -90
+             except Exception:
+                pass
+        
+        self.local_preview_rotation = rotation
         self.local_preview_scale_y = 1
 
         try:
@@ -154,12 +163,12 @@ class StartVideoDateScreen(Screen):
         self._refresh_android_permission_state()
 
         if self.camera_permission_granted and self.audio_permission_granted:
-            # Do not start local camera preview on StartVideoDateScreen.
-            self.camera_should_play = False
+            # Start local camera preview on StartVideoDateScreen.
+            self.camera_should_play = True
             return
 
         if platform != "android":
-            self.camera_should_play = False
+            self.camera_should_play = True
             return
 
         try:
@@ -171,8 +180,8 @@ class StartVideoDateScreen(Screen):
                     try:
                         self._refresh_android_permission_state()
                         if self.camera_permission_granted and self.audio_permission_granted:
-                            # Do not start local camera preview on StartVideoDateScreen.
-                            self.camera_should_play = False
+                            # Start local camera preview on StartVideoDateScreen.
+                            self.camera_should_play = True
                         else:
                             Logger.warning(
                                 "StartVideoDateScreen: permissions denied. camera=%s audio=%s",

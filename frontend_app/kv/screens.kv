@@ -1456,6 +1456,44 @@
                 pos: self.pos
                 size: self.size
 
+        # Local Camera Preview (Background)
+        BoxLayout:
+            id: local_preview
+            size_hint: 1, 1
+            pos_hint: {"x": 0, "y": 0}
+            canvas.before:
+                Color:
+                    rgba: 0, 0, 0, 1
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
+            
+            Scatter:
+                id: local_preview_scatter
+                size_hint: 1, 1
+                pos: 0, 0
+                do_translation: False
+                do_scale: False
+                do_rotation: False
+                rotation: root.local_preview_rotation
+                center: self.parent.center
+                canvas.before:
+                    PushMatrix
+                    Scale:
+                        x: root.local_preview_scale_x
+                        y: 1
+                        origin: self.center
+                canvas.after:
+                    PopMatrix
+
+                AndroidSafeCamera:
+                    id: local_camera
+                    play: root.camera_permission_granted and root.camera_should_play
+                    fit_mode: "cover"
+                    size_hint: None, None
+                    size: local_preview_scatter.size
+                    pos: 0, 0
+
         ####################################################################
         # CONNECTION STATE (NO LOCAL PREVIEW HERE)
         ####################################################################
@@ -1558,14 +1596,14 @@
                 id: chat_input
                 hint_text: "Message..."
                 multiline: False
+                size_hint_x: 0.75
                 background_color: 1, 1, 1, 0.12
                 foreground_color: 1, 1, 1, 1
                 cursor_color: 1, 1, 1, 1
 
             Button:
                 text: "Send"
-                size_hint_x: None
-                width: dp(70)
+                size_hint_x: 0.25
                 on_release: root.send_message()
 
         ####################################################################
@@ -1586,8 +1624,7 @@
 
             Button:
                 text: "Back"
-                size_hint_x: None
-                width: dp(80)
+                size_hint_x: 0.2
                 on_release: root.go_back()
 
             Label:
@@ -1602,8 +1639,7 @@
 
             Label:
                 text: "● CONNECTING" if root.show_loading else "● READY"
-                size_hint_x: None
-                width: dp(130)
+                size_hint_x: 0.35
                 font_size: sp(12)
                 color: (1, 0.8, 0.2, 1) if root.show_loading else (0.2, 1, 0.3, 1)
                 bold: True
