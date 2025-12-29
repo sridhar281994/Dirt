@@ -95,27 +95,28 @@ class LoginScreen(Screen):
     # Send OTP
     # -----------------------
     def send_otp_to_user(self):
-        identifier = self._read_identifier()
-        password = self._read_password()
+    identifier = self._read_identifier()
+    password = self._read_password()
 
-        if not self._validate_identifier(identifier):
-            _popup("Error", "Enter a valid registered email or number.")
-            return
-        if len(password) < 4:
-            _popup("Error", "Enter your password.")
-            return
+    if not self._validate_identifier(identifier):
+        _popup("Error", "Enter a valid registered email or number.")
+        return
+    if len(password) < 4:
+        _popup("Error", "Enter your password.")
+        return
 
-        def work():
-            # Request OTP - this will validate the password automatically
-            try:
-                data = api_login_request_otp(identifier=identifier, password=password)
-                _popup("Success", data.get("message") or "OTP sent to your email.")
-                return
-            except ApiError as exc:
-                _popup("Error", str(exc))
-                return
+    def work():
+        try:
+            data = api_login_request_otp(identifier=identifier, password=password)
+            Clock.schedule_once(
+                lambda *_: _popup("Success", data.get("message") or "OTP sent."),
+                0,
+            )
+        except ApiError as exc:
+            Clock.schedule_once(lambda *_: _popup("Error", str(exc)), 0)
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
+
 
     # -----------------------
     # Verify OTP + Login
@@ -154,9 +155,9 @@ class LoginScreen(Screen):
                 Clock.schedule_once(after, 0)
 
             except ApiError as exc:
-                _popup("Error", str(exc))
+            Clock.schedule_once(lambda *_: _popup("Error", str(exc)), 0)
 
-        Thread(target=work, daemon=True).start()
+        Thread(target=work, daemon=False).start()
 
     def login_as_guest(self):
         def work():
