@@ -32,7 +32,21 @@ warn_on_root = 1
 [android]
 # API levels
 android.api = 34
-android.minapi = 21
+#
+# Production note: Encrypted storage for auth tokens uses Android Keystore which
+# requires API 23+. (This is a common production baseline.)
+android.minapi = 23
+
+# Versioning for Play Store (versionCode must increase every upload)
+# Keep `version = ...` (versionName) above, and bump this integer for releases.
+android.numeric_version = 1
+
+# Production defaults
+android.private_storage = True
+android.allow_backup = False
+
+# Prefer Play Store artifact
+android.release_artifact = aab
 
 # Build outputs: debug APK by default (workflow calls `buildozer android debug`)
 # For release/AAB you can run: `buildozer android release` or `buildozer android aab`
@@ -41,11 +55,19 @@ android.minapi = 21
 android.archs = arm64-v8a,armeabi-v7a
 
 # Permissions needed for video + network + billing
-android.permissions = INTERNET,CAMERA,RECORD_AUDIO,WAKE_LOCK,MODIFY_AUDIO_SETTINGS,FOREGROUND_SERVICE,com.android.vending.BILLING
+# Use fully-qualified names so AndroidManifest always gets proper `uses-permission` entries
+# (fixes "No permissions requested" in Android settings when shorthands aren't expanded).
+android.permissions = android.permission.INTERNET,android.permission.ACCESS_NETWORK_STATE,android.permission.CAMERA,android.permission.RECORD_AUDIO,android.permission.WAKE_LOCK,android.permission.MODIFY_AUDIO_SETTINGS,android.permission.FOREGROUND_SERVICE,android.permission.FOREGROUND_SERVICE_CAMERA,android.permission.FOREGROUND_SERVICE_MICROPHONE,com.android.vending.BILLING
 
 # Use Gradle (required for modern Android + dependencies)
 android.enable_androidx = True
-android.gradle_dependencies = com.android.billingclient:billing:6.1.0,io.agora.rtc:full-sdk:4.1.1
+android.gradle_dependencies = com.android.billingclient:billing:6.1.0,io.agora.rtc:full-sdk:4.1.1,androidx.security:security-crypto:1.1.0-alpha06
+
+# Release signing (required for Play Store). DO NOT commit real passwords.
+# android.release_keystore = /absolute/path/to/your-upload-keystore.jks
+# android.release_keyalias = upload
+# android.release_keystore_passwd = YOUR_KEYSTORE_PASSWORD
+# android.release_keyalias_passwd = YOUR_KEYALIAS_PASSWORD
 
 # If your CI has trouble downloading Ant, workflow forces android.ant_path=/usr
 # android.ant_path = /usr
