@@ -151,52 +151,90 @@ class AgoraAndroidClient:
 
             parent_ref = ref(self)
 
-            class EventHandler(PythonJavaClass):  # type: ignore[misc]
-                __javainterfaces__ = ["io/agora/rtc2/IRtcEngineEventHandler"]
-                __javacontext__ = "app"
+            # Agora's Java SDK exposes `IRtcEngineEventHandler` as an *abstract class*
+            # (not an interface). PyJNIus can proxy either interfaces or base classes,
+            # but you must declare the correct one, otherwise you get:
+            #   "IRtcEngineEventHandler is not an interface"
+            #
+            # We try the modern/expected base-class approach first, then fall back to
+            # the interface declaration for compatibility with unusual SDK builds.
+            def _make_handler():
+                def _install_methods(cls):
+                    @java_method("(Ljava/lang/String;II)V")
+                    def onJoinChannelSuccess(self, channel, uid, elapsed):  # noqa: N802
+                        parent = parent_ref()
+                        if not parent:
+                            return
+                        ch = str(channel) if channel is not None else ""
+                        u = int(uid)
 
-                @java_method("(Ljava/lang/String;II)V")
-                def onJoinChannelSuccess(self, channel, uid, elapsed):  # noqa: N802
-                    parent = parent_ref()
-                    if not parent:
-                        return
-                    ch = str(channel) if channel is not None else ""
-                    u = int(uid)
+                        def _cb(*_):
+                            parent._joined = True
+                            if parent._on_join_success:
+                                parent._on_join_success(ch, u)
 
-                    def _cb(*_):
-                        parent._joined = True
-                        if parent._on_join_success:
-                            parent._on_join_success(ch, u)
+                        Clock.schedule_once(_cb, 0)
 
-                    Clock.schedule_once(_cb, 0)
+                    @java_method("(II)V")
+                    def onUserJoined(self, uid, elapsed):  # noqa: N802
+                        parent = parent_ref()
+                        if not parent:
+                            return
+                        u = int(uid)
 
-                @java_method("(II)V")
-                def onUserJoined(self, uid, elapsed):  # noqa: N802
-                    parent = parent_ref()
-                    if not parent:
-                        return
-                    u = int(uid)
+                        def _cb(*_):
+                            if parent._on_user_joined:
+                                parent._on_user_joined(u)
 
-                    def _cb(*_):
-                        if parent._on_user_joined:
-                            parent._on_user_joined(u)
+                        Clock.schedule_once(_cb, 0)
 
-                    Clock.schedule_once(_cb, 0)
+                    @java_method("(II)V")
+                    def onUserOffline(self, uid, reason):  # noqa: N802
+                        parent = parent_ref()
+                        if not parent:
+                            return
+                        u = int(uid)
 
-                @java_method("(II)V")
-                def onUserOffline(self, uid, reason):  # noqa: N802
-                    parent = parent_ref()
-                    if not parent:
-                        return
-                    u = int(uid)
+                        def _cb(*_):
+                            if parent._on_user_offline:
+                                parent._on_user_offline(u)
 
-                    def _cb(*_):
-                        if parent._on_user_offline:
-                            parent._on_user_offline(u)
+                        Clock.schedule_once(_cb, 0)
 
-                    Clock.schedule_once(_cb, 0)
+                    cls.onJoinChannelSuccess = onJoinChannelSuccess
+                    cls.onUserJoined = onUserJoined
+                    cls.onUserOffline = onUserOffline
+                    return cls
 
-            handler = EventHandler()
+                # Preferred: extend the Java base class.
+                try:
+                    class EventHandler(PythonJavaClass):  # type: ignore[misc]
+                        __javabaseclass__ = "io/agora/rtc2/IRtcEngineEventHandler"
+                        __javacontext__ = "app"
+
+                    _install_methods(EventHandler)
+                    return ("baseclass", EventHandler())
+                except Exception:
+                    # Fallback: implement as interface (older / nonstandard builds).
+                    class EventHandler(PythonJavaClass):  # type: ignore[misc]
+                        __javainterfaces__ = ["io/agora/rtc2/IRtcEngineEventHandler"]
+                        __javacontext__ = "app"
+
+                    _install_methods(EventHandler)
+                    return ("interface", EventHandler())
+
+            handler_mode = None
+            handler = None
+            try:
+                handler_mode, handler = _make_handler()
+            except Exception:
+                # Last-resort: allow app to continue without callbacks rather than
+                # crashing the whole video screen.
+                Logger.exception(
+                    "AgoraAndroidClient: failed to create event handler proxy; continuing without handler"
+                )
+                handler_mode, handler = ("none", None)
+            Logger.info("AgoraAndroidClient: event handler mode=%s", handler_mode)
 
             RtcEngine = autoclass("io.agora.rtc2.RtcEngine")
             engine = None
@@ -206,7 +244,8 @@ class AgoraAndroidClient:
                 # Field names follow Agora docs for v4.x
                 config.mContext = context
                 config.mAppId = str(app_id)
-                config.mEventHandler = handler
+                if handler is not None:
+                    config.mEventHandler = handler
                 engine = RtcEngine.create(config)
             except Exception:
                 # Older create signature fallback
