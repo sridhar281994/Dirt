@@ -141,171 +141,224 @@ class AgoraAndroidClient:
             return False
         if self._engine is not None:
             return True
-
+    
         try:
-            from jnius import autoclass, PythonJavaClass, java_method  # type: ignore
-
+            from jnius import autoclass  # type: ignore
+    
             PythonActivity = autoclass("org.kivy.android.PythonActivity")
             activity = PythonActivity.mActivity
             context = activity.getApplicationContext()
-
-            parent_ref = ref(self)
-
-            # Agora's Java SDK exposes `IRtcEngineEventHandler` as an *abstract class*
-            # (not an interface). PyJNIus can proxy either interfaces or base classes,
-            # but you must declare the correct one, otherwise you get:
-            #   "IRtcEngineEventHandler is not an interface"
-            #
-            # We try the modern/expected base-class approach first, then fall back to
-            # the interface declaration for compatibility with unusual SDK builds.
-            def _make_handler():
-                def _install_methods(cls):
-                    @java_method("(Ljava/lang/String;II)V")
-                    def onJoinChannelSuccess(self, channel, uid, elapsed):  # noqa: N802
-                        parent = parent_ref()
-                        if not parent:
-                            return
-                        ch = str(channel) if channel is not None else ""
-                        u = int(uid)
-
-                        def _cb(*_):
-                            parent._joined = True
-                            if parent._on_join_success:
-                                parent._on_join_success(ch, u)
-
-                        Clock.schedule_once(_cb, 0)
-
-                    @java_method("(II)V")
-                    def onUserJoined(self, uid, elapsed):  # noqa: N802
-                        parent = parent_ref()
-                        if not parent:
-                            return
-                        u = int(uid)
-
-                        def _cb(*_):
-                            if parent._on_user_joined:
-                                parent._on_user_joined(u)
-
-                        Clock.schedule_once(_cb, 0)
-
-                    @java_method("(II)V")
-                    def onUserOffline(self, uid, reason):  # noqa: N802
-                        parent = parent_ref()
-                        if not parent:
-                            return
-                        u = int(uid)
-
-                        def _cb(*_):
-                            if parent._on_user_offline:
-                                parent._on_user_offline(u)
-
-                        Clock.schedule_once(_cb, 0)
-
-                    cls.onJoinChannelSuccess = onJoinChannelSuccess
-                    cls.onUserJoined = onUserJoined
-                    cls.onUserOffline = onUserOffline
-                    return cls
-
-                # Preferred: extend the Java base class.
-                try:
-                    class EventHandler(PythonJavaClass):  # type: ignore[misc]
-                        __javabaseclass__ = "io/agora/rtc2/IRtcEngineEventHandler"
-                        __javacontext__ = "app"
-
-                    _install_methods(EventHandler)
-                    return ("baseclass", EventHandler())
-                except Exception:
-                    # Fallback: implement as interface (older / nonstandard builds).
-                    class EventHandler(PythonJavaClass):  # type: ignore[misc]
-                        __javainterfaces__ = ["io/agora/rtc2/IRtcEngineEventHandler"]
-                        __javacontext__ = "app"
-
-                    _install_methods(EventHandler)
-                    return ("interface", EventHandler())
-
-            handler_mode = None
-            handler = None
-            try:
-                handler_mode, handler = _make_handler()
-            except Exception:
-                # Last-resort: allow app to continue without callbacks rather than
-                # crashing the whole video screen.
-                Logger.exception(
-                    "AgoraAndroidClient: failed to create event handler proxy; continuing without handler"
-                )
-                handler_mode, handler = ("none", None)
-            Logger.info("AgoraAndroidClient: event handler mode=%s", handler_mode)
-
+    
             RtcEngine = autoclass("io.agora.rtc2.RtcEngine")
+    
+            # --- SAFE CREATE (NO EVENT HANDLER) ---
             engine = None
             try:
                 RtcEngineConfig = autoclass("io.agora.rtc2.RtcEngineConfig")
                 config = RtcEngineConfig()
-                # Field names follow Agora docs for v4.x
                 config.mContext = context
                 config.mAppId = str(app_id)
-                if handler is not None:
-                    config.mEventHandler = handler
+                config.mEventHandler = None   # 🚫 DO NOT SET HANDLER
                 engine = RtcEngine.create(config)
             except Exception:
-                # Older create signature fallback
-                engine = RtcEngine.create(context, str(app_id), handler)
-
+                engine = RtcEngine.create(context, str(app_id), None)
+    
+            Logger.info("AgoraAndroidClient: engine created without event handler")
+    
             Constants = autoclass("io.agora.rtc2.Constants")
+    
             try:
                 engine.setChannelProfile(int(Constants.CHANNEL_PROFILE_COMMUNICATION))
             except Exception:
                 pass
-            # WhatsApp-like defaults: speakerphone for video calls.
+    
             try:
                 engine.setDefaultAudioRoutetoSpeakerphone(True)
-            except Exception:
-                pass
-            try:
                 engine.setEnableSpeakerphone(True)
             except Exception:
                 pass
+    
             try:
                 engine.enableVideo()
-            except Exception:
-                pass
-            try:
                 engine.enableAudio()
             except Exception:
                 pass
-            # Best-effort encoder config (portrait-friendly baseline).
+    
+            # Conservative mobile encoder config
             try:
-                VideoEncoderConfiguration = autoclass("io.agora.rtc2.video.VideoEncoderConfiguration")
-                VideoDimensions = autoclass("io.agora.rtc2.video.VideoEncoderConfiguration$VideoDimensions")
-                # 640x360 is a conservative default for mobile RTC.
-                dims = VideoDimensions(int(640), int(360))
+                VideoEncoderConfiguration = autoclass(
+                    "io.agora.rtc2.video.VideoEncoderConfiguration"
+                )
+                VideoDimensions = autoclass(
+                    "io.agora.rtc2.video.VideoEncoderConfiguration$VideoDimensions"
+                )
+                dims = VideoDimensions(640, 360)
                 cfg = VideoEncoderConfiguration()
-                try:
-                    cfg.dimensions = dims
-                except Exception:
-                    pass
-                try:
-                    cfg.frameRate = int(VideoEncoderConfiguration.FRAME_RATE.FRAME_RATE_FPS_15)
-                except Exception:
-                    pass
-                try:
-                    cfg.bitrate = int(VideoEncoderConfiguration.STANDARD_BITRATE)
-                except Exception:
-                    pass
+                cfg.dimensions = dims
                 engine.setVideoEncoderConfiguration(cfg)
             except Exception:
                 pass
-
+    
             self._engine = engine
-            self._handler = handler
             self._activity = activity
+            self._handler = None
             return True
+    
         except Exception:
             Logger.exception("AgoraAndroidClient: failed to initialize Agora engine")
             self._engine = None
             self._handler = None
             self._activity = None
             return False
+
+        #     def _make_handler():
+        #         def _install_methods(cls):
+        #             @java_method("(Ljava/lang/String;II)V")
+        #             def onJoinChannelSuccess(self, channel, uid, elapsed):  # noqa: N802
+        #                 parent = parent_ref()
+        #                 if not parent:
+        #                     return
+        #                 ch = str(channel) if channel is not None else ""
+        #                 u = int(uid)
+
+        #                 def _cb(*_):
+        #                     parent._joined = True
+        #                     if parent._on_join_success:
+        #                         parent._on_join_success(ch, u)
+
+        #                 Clock.schedule_once(_cb, 0)
+
+        #             @java_method("(II)V")
+        #             def onUserJoined(self, uid, elapsed):  # noqa: N802
+        #                 parent = parent_ref()
+        #                 if not parent:
+        #                     return
+        #                 u = int(uid)
+
+        #                 def _cb(*_):
+        #                     if parent._on_user_joined:
+        #                         parent._on_user_joined(u)
+
+        #                 Clock.schedule_once(_cb, 0)
+
+        #             @java_method("(II)V")
+        #             def onUserOffline(self, uid, reason):  # noqa: N802
+        #                 parent = parent_ref()
+        #                 if not parent:
+        #                     return
+        #                 u = int(uid)
+
+        #                 def _cb(*_):
+        #                     if parent._on_user_offline:
+        #                         parent._on_user_offline(u)
+
+        #                 Clock.schedule_once(_cb, 0)
+
+        #             cls.onJoinChannelSuccess = onJoinChannelSuccess
+        #             cls.onUserJoined = onUserJoined
+        #             cls.onUserOffline = onUserOffline
+        #             return cls
+
+        #         # Preferred: extend the Java base class.
+        #         try:
+        #             class EventHandler(PythonJavaClass):  # type: ignore[misc]
+        #                 __javabaseclass__ = "io/agora/rtc2/IRtcEngineEventHandler"
+        #                 __javacontext__ = "app"
+
+        #             _install_methods(EventHandler)
+        #             return ("baseclass", EventHandler())
+        #         except Exception:
+        #             # Fallback: implement as interface (older / nonstandard builds).
+        #             class EventHandler(PythonJavaClass):  # type: ignore[misc]
+        #                 __javainterfaces__ = ["io/agora/rtc2/IRtcEngineEventHandler"]
+        #                 __javacontext__ = "app"
+
+        #             _install_methods(EventHandler)
+        #             return ("interface", EventHandler())
+
+        #     handler_mode = None
+        #     handler = None
+        #     try:
+        #         handler_mode, handler = _make_handler()
+        #     except Exception:
+        #         # Last-resort: allow app to continue without callbacks rather than
+        #         # crashing the whole video screen.
+        #         Logger.exception(
+        #             "AgoraAndroidClient: failed to create event handler proxy; continuing without handler"
+        #         )
+        #         handler_mode, handler = ("none", None)
+        #     Logger.info("AgoraAndroidClient: event handler mode=%s", handler_mode)
+
+        #     RtcEngine = autoclass("io.agora.rtc2.RtcEngine")
+        #     engine = None
+        #     try:
+        #         RtcEngineConfig = autoclass("io.agora.rtc2.RtcEngineConfig")
+        #         config = RtcEngineConfig()
+        #         # Field names follow Agora docs for v4.x
+        #         config.mContext = context
+        #         config.mAppId = str(app_id)
+        #         if handler is not None:
+        #             config.mEventHandler = handler
+        #         engine = RtcEngine.create(config)
+        #     except Exception:
+        #         # Older create signature fallback
+        #         engine = RtcEngine.create(context, str(app_id), handler)
+
+        #     Constants = autoclass("io.agora.rtc2.Constants")
+        #     try:
+        #         engine.setChannelProfile(int(Constants.CHANNEL_PROFILE_COMMUNICATION))
+        #     except Exception:
+        #         pass
+        #     # WhatsApp-like defaults: speakerphone for video calls.
+        #     try:
+        #         engine.setDefaultAudioRoutetoSpeakerphone(True)
+        #     except Exception:
+        #         pass
+        #     try:
+        #         engine.setEnableSpeakerphone(True)
+        #     except Exception:
+        #         pass
+        #     try:
+        #         engine.enableVideo()
+        #     except Exception:
+        #         pass
+        #     try:
+        #         engine.enableAudio()
+        #     except Exception:
+        #         pass
+        #     # Best-effort encoder config (portrait-friendly baseline).
+        #     try:
+        #         VideoEncoderConfiguration = autoclass("io.agora.rtc2.video.VideoEncoderConfiguration")
+        #         VideoDimensions = autoclass("io.agora.rtc2.video.VideoEncoderConfiguration$VideoDimensions")
+        #         # 640x360 is a conservative default for mobile RTC.
+        #         dims = VideoDimensions(int(640), int(360))
+        #         cfg = VideoEncoderConfiguration()
+        #         try:
+        #             cfg.dimensions = dims
+        #         except Exception:
+        #             pass
+        #         try:
+        #             cfg.frameRate = int(VideoEncoderConfiguration.FRAME_RATE.FRAME_RATE_FPS_15)
+        #         except Exception:
+        #             pass
+        #         try:
+        #             cfg.bitrate = int(VideoEncoderConfiguration.STANDARD_BITRATE)
+        #         except Exception:
+        #             pass
+        #         engine.setVideoEncoderConfiguration(cfg)
+        #     except Exception:
+        #         pass
+
+        #     self._engine = engine
+        #     self._handler = handler
+        #     self._activity = activity
+        #     return True
+        # except Exception:
+        #     Logger.exception("AgoraAndroidClient: failed to initialize Agora engine")
+        #     self._engine = None
+        #     self._handler = None
+        #     self._activity = None
+        #     return False
 
     def _ensure_container(self) -> None:
         if platform != "android":
