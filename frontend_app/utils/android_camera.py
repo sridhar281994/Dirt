@@ -35,8 +35,8 @@ def get_android_camera_ids() -> AndroidCameraIds:
 
         n = int(Camera.getNumberOfCameras())
         ids: list[int] = []
-        back: int | None = None
-        front: int | None = None
+        back_ids: list[int] = []
+        front_ids: list[int] = []
 
         for i in range(n):
             info = CameraInfo()
@@ -48,24 +48,47 @@ def get_android_camera_ids() -> AndroidCameraIds:
                 facing = -1
 
             if facing == int(CameraInfo.CAMERA_FACING_BACK):
-                back = int(i)
+                back_ids.append(int(i))
             elif facing == int(CameraInfo.CAMERA_FACING_FRONT):
-                front = int(i)
+                front_ids.append(int(i))
 
         if not ids:
             return AndroidCameraIds(back=0, front=1, all_ids=(0, 1))
 
-        if back is None:
+        # IMPORTANT (OEM quirk):
+        # Many devices report multiple BACK cameras (wide/tele/macro). Access to
+        # auxiliary cameras is often restricted unless your package is whitelisted
+        # (logcat: "Access denied finding property vendor.camera.aux.packagelist").
+        #
+        # If we accidentally pick an auxiliary BACK camera here, Kivy's legacy
+        # camera backend may open it but render black. To minimize that:
+        # - Prefer BACK id 0 if it is back-facing
+        # - Else pick the *lowest* back-facing id
+        # - Similar logic for FRONT (prefer 1 if it is front-facing)
+        if back_ids:
+            back = 0 if 0 in back_ids else min(back_ids)
+        else:
             back = ids[0]
 
-        if front is None:
+        if front_ids:
+            front = 1 if 1 in front_ids else min(front_ids)
+        else:
             # If there is a second camera, prefer it. Otherwise fall back to back.
             if len(ids) >= 2:
                 front = ids[1] if ids[0] == back else ids[0]
             else:
                 front = back
 
-        return AndroidCameraIds(back=int(back), front=int(front), all_ids=tuple(ids))
+        out = AndroidCameraIds(back=int(back), front=int(front), all_ids=tuple(ids))
+        Logger.info(
+            "android_camera: cameras=%s back_ids=%s front_ids=%s selected back=%s front=%s",
+            list(ids),
+            list(back_ids),
+            list(front_ids),
+            out.back,
+            out.front,
+        )
+        return out
     except Exception:
         Logger.exception("android_camera: failed to detect camera IDs")
         return AndroidCameraIds(back=0, front=1, all_ids=(0, 1))
