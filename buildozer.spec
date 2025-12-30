@@ -10,11 +10,15 @@ package.name = frendschat
 package.domain = org.test
 
 # (str) Source code where the main.py live
-source.dir = .
+#
+# IMPORTANT (APK/AAB size):
+# Package ONLY the Kivy frontend sources for Android builds.
+# This excludes the FastAPI backend and other repo files from the mobile app.
+source.dir = frontend_app
 
 # (str) Application entry point (relative to source.dir)
-# python-for-android requires a root-level `main.py` inside the packaged app directory.
-# Our repo root `main.py` routes to the Kivy app on Android and to the backend on server.
+# With `source.dir = frontend_app`, this becomes `frontend_app/main.py` in the repo
+# and a root-level `main.py` inside the packaged app (as required by p4a).
 entrypoint = main.py
 
 # (list) Source files to include (let empty to include all the files)
@@ -72,7 +76,7 @@ android.enable_androidx = True
 #presplash.filename = %(source.dir)s/data/presplash.png
 
 # (str) Icon of the application
-icon.filename = %(source.dir)s/frontend_app/assets/icon.png
+icon.filename = %(source.dir)s/assets/icon.png
 
 # (str) Supported orientation (one of landscape, sensorLandscape, portrait or all)
 orientation = portrait
@@ -190,6 +194,10 @@ android.minapi = 21
 # (bool) Copy library instead of making a libpymodules.so
 #android.copy_libs = 1
 
+# (bool) Strip debug symbols from native libs to reduce artifact size.
+# Safe for release builds; if you need native crash symbols, disable temporarily.
+android.strip = True
+
 # (str) The Android arch to build for, choices: armeabi-v7a, arm64-v8a, x86, x86_64
 android.archs = arm64-v8a
 
@@ -263,6 +271,7 @@ warn_on_root = 1
 
 
 [app:source.exclude_patterns]
+# Keep the packaged sources as small as possible.
 __pycache__/*
 */__pycache__/*
 */*/__pycache__/*
@@ -271,27 +280,15 @@ __pycache__/*
 *.pyo
 *.pyd
 *.zip
+
+# Never ship repo metadata / build output.
 .git/*
 .github/*
 .buildozer/*
 bin/*
-apache-ant-*
-apache-ant-*/*
-apache-ant-*/*/*
-apache-ant-*/*/*/*
-tmp_kivy221/*
-tmp_kivyzip/*
-tmp_kivysdist/*
+
+# Local/dev artifacts that should not be in the app bundle.
 tmp_*/*
-app.db
 *.db
 *.sqlite
 *.sqlite3
-routers/*
-scripts/*
-core/*
-utils/*
-database.py
-models.py
-render-db-migrate.yml
-requirements.txt
