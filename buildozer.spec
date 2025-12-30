@@ -11,14 +11,23 @@ package.domain = org.test
 
 # (str) Source code where the main.py live
 #
-# IMPORTANT (APK/AAB size):
-# Package ONLY the Kivy frontend sources for Android builds.
-# This excludes the FastAPI backend and other repo files from the mobile app.
-source.dir = frontend_app
+# IMPORTANT (runtime):
+# The app's KV + Python code imports from the `frontend_app.*` package.
+# That package only exists on-device if the APK contains the repository root
+# (i.e. `frontend_app/` is a real subfolder of the packaged app).
+#
+# Previously this was set to `frontend_app`, which makes the *contents* of that
+# folder become the app root inside the APK. In that layout, there is no
+# `frontend_app` package and the app exits instantly on launch.
+#
+# Packaging the repo root keeps imports working; we still exclude backend/server
+# sources below to keep APK/AAB size reasonable.
+source.dir = .
 
 # (str) Application entry point (relative to source.dir)
-# With `source.dir = frontend_app`, this becomes `frontend_app/main.py` in the repo
-# and a root-level `main.py` inside the packaged app (as required by p4a).
+# Root `main.py` dispatches:
+# - Android: runs `frontend_app.main.ChatApp()`
+# - Server/dev: exposes the FastAPI backend
 entrypoint = main.py
 
 # (list) Source files to include (let empty to include all the files)
@@ -76,7 +85,7 @@ android.enable_androidx = True
 #presplash.filename = %(source.dir)s/data/presplash.png
 
 # (str) Icon of the application
-icon.filename = %(source.dir)s/assets/icon.png
+icon.filename = frontend_app/assets/icon.png
 
 # (str) Supported orientation (one of landscape, sensorLandscape, portrait or all)
 orientation = portrait
@@ -292,3 +301,16 @@ tmp_*/*
 *.db
 *.sqlite
 *.sqlite3
+
+# Backend/server code is not needed on-device.
+routers/*
+scripts/*
+database.py
+models.py
+utils/*
+app.db
+render-db-migrate.yml
+requirements.txt
+PRODUCTION.md
+=4.0.1
+core
