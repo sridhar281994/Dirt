@@ -312,5 +312,4 @@ app.db
 render-db-migrate.yml
 requirements.txt
 PRODUCTION.md
-=4.0.1
 core
