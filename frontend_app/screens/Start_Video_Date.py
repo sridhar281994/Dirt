@@ -63,15 +63,20 @@ class StartVideoDateScreen(Screen):
             ids = get_android_camera_ids()
             self.back_camera_index = int(ids.back)
             self.front_camera_index = int(ids.front)
-            self.active_camera_index = int(ids.back)
         except Exception:
+            # Safe fallback (most devices)
             self.back_camera_index = 0
             self.front_camera_index = 1
-            self.active_camera_index = 0
+    
+        # ALWAYS start with back camera
+        self.active_camera_index = self.back_camera_index
         self._update_front_flag()
 
+
     def _update_front_flag(self) -> None:
-        self.is_front_camera = int(self.active_camera_index) == int(self.front_camera_index)
+        self.is_front_camera = (
+            int(self.active_camera_index) == int(self.front_camera_index)
+        )
         self._update_local_preview_transform()
 
     def _init_local_preview_transform(self) -> None:
@@ -79,54 +84,41 @@ class StartVideoDateScreen(Screen):
 
     def _update_local_preview_transform(self) -> None:
         """
-        Fix camera preview orientation.
-
-        User requirement:
-        - The preview must NOT be rotated (upright, "same as live").
-        - Front camera may be mirrored (selfie-style), but no rotation.
+        Camera preview rules (Android-safe):
+    
+        - NEVER rotate the preview
+        - Front camera → mirror (selfie style)
+        - Back camera → normal
         """
-        rotation = 0
-        if platform == "android":
-             try:
-                from kivy.core.window import Window
-                is_portrait = Window.height >= Window.width
-                if is_portrait:
-                    rotation = -90
-             except Exception:
-                pass
-        
-        self.local_preview_rotation = rotation
+    
+        # Android camera buffers are already landscape – do NOT rotate
+        self.local_preview_rotation = 0
+        self.local_preview_swap_wh = False
+    
+        # Mirror only front camera
+        self.local_preview_scale_x = -1 if self.is_front_camera else 1
         self.local_preview_scale_y = 1
 
-        try:
-            self.local_preview_swap_wh = int(abs(float(self.local_preview_rotation)) % 180) == 90
-        except Exception:
-            self.local_preview_swap_wh = False
-
-        # Mirror selfie preview on X for front camera (optional; keeps appearance correct)
-        self.local_preview_scale_x = -1 if bool(self.is_front_camera) else 1
 
     def on_pre_enter(self, *args):
         self._init_camera_ids()
         self._refresh_android_permission_state()
 
     def on_enter(self, *args):
-        # On Android, Window.softinput_mode="below_target" can repeatedly shift the
-        # whole screen upward when we frequently update the chat widget tree.
-        # Use "pan" here to keep overlays stable (no cumulative offset).
         if platform == "android":
             try:
                 from kivy.core.window import Window
-
                 self._prev_softinput_mode = getattr(Window, "softinput_mode", None)
                 Window.softinput_mode = "pan"
             except Exception:
                 self._prev_softinput_mode = None
-        # Request permissions up-front (so VideoScreen can join quickly),
-        # but do NOT start local preview on this screen.
+    
         self._ensure_android_av_permissions()
         self._start_chat_polling()
         self.retry()
+    
+        # 🔴 REQUIRED: explicitly start camera after screen loads
+        Clock.schedule_once(lambda *_: self._start_camera(), 0.1)
 
     def on_leave(self, *args):
         self._stop_spinner()
