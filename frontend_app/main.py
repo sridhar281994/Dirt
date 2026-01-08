@@ -3,13 +3,24 @@ import os
 import sys
 import ssl
 
-# Fix for SSL certificate verify failed error
+# Desktop/packaged builds sometimes lack a usable system CA store.
+# Force common SSL libs (requests/urllib) to use certifi's CA bundle.
 try:
-    _create_unverified_https_context = ssl._create_unverified_context
-except AttributeError:
+    import certifi
+
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+except Exception:
+    # If certifi isn't available, don't crash; requests will fall back to defaults.
     pass
-else:
-    ssl._create_default_https_context = _create_unverified_https_context
+
+# Optional dev-only escape hatch for environments with broken/intercepted TLS.
+# Do NOT enable by default.
+if os.getenv("BUDDYMEET_INSECURE_SSL", "").strip() == "1":
+    try:
+        ssl._create_default_https_context = ssl._create_unverified_context  # type: ignore[attr-defined]
+    except Exception:
+        pass
 
 #
 # IMPORTANT (Android packaging):

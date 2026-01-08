@@ -6,6 +6,8 @@ from kivy.clock import Clock
 from kivy.logger import Logger
 from kivy.properties import BooleanProperty, NumericProperty, StringProperty
 from kivy.metrics import dp
+from kivy.uix.label import Label
+from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen
 from kivy.utils import platform
 
@@ -114,7 +116,6 @@ class StartVideoDateScreen(Screen):
                 self._prev_softinput_mode = None
     
         self._ensure_android_av_permissions()
-        self._start_chat_polling()
         self.retry()
     
         # 🔴 REQUIRED: explicitly start camera after screen loads
@@ -124,7 +125,6 @@ class StartVideoDateScreen(Screen):
         self._stop_spinner()
         self._cancel_retry()
         self._stop_camera()
-        self._stop_chat_polling()
         # Reset ephemeral in-call state for next entry.
         self._reset_session_chat()
         # Restore global keyboard handling.
@@ -546,6 +546,7 @@ class StartVideoDateScreen(Screen):
     def send_message(self) -> None:
         sid = int(self.session_id or 0)
         if sid <= 0:
+            self._toast("Info", "Chat will be available once you’re connected.")
             return
         inp = self.ids.get("chat_input")
         if not inp:
@@ -565,11 +566,29 @@ class StartVideoDateScreen(Screen):
 
         Thread(target=work, daemon=True).start()
 
+    def _toast(self, title: str, msg: str) -> None:
+        """
+        Small, auto-dismissing popup (cross-platform).
+        """
+        def _open(*_):
+            try:
+                p = Popup(
+                    title=str(title or "Info"),
+                    content=Label(text=str(msg or "")),
+                    size_hint=(0.75, 0.28),
+                    auto_dismiss=True,
+                )
+                p.open()
+                Clock.schedule_once(lambda _dt: p.dismiss(), 1.8)
+            except Exception:
+                pass
+
+        Clock.schedule_once(_open, 0)
+
     def go_back(self) -> None:
         self._stop_spinner()
         self._cancel_retry()
         self._stop_camera()
-        self._stop_chat_polling()
         self._reset_session_chat()
         if self.manager:
             self.manager.current = "choose"

@@ -24,7 +24,7 @@ def _store_path() -> str:
     Return a writable path for persistent storage.
 
     - Android: use App.user_data_dir
-    - Desktop/dev: store alongside this module
+    - Desktop/dev: use OS user data dir (falls back to module folder)
     """
     try:
         app = App.get_running_app()
@@ -32,6 +32,14 @@ def _store_path() -> str:
             return os.path.join(app.user_data_dir, "buddymeet_store.json")
     except Exception:
         pass
+    # When App isn't running yet (e.g. early imports), user_data_dir is unavailable.
+    # Use a stable per-user location so sessions survive restarts on desktop builds.
+    if platform != "android":
+        base = (
+            os.getenv("XDG_DATA_HOME")
+            or os.path.join(os.path.expanduser("~"), ".local", "share")
+        )
+        return os.path.join(base, "buddymeet", "buddymeet_store.json")
     return os.path.join(os.path.dirname(__file__), "buddymeet_store.json")
 
 
@@ -100,9 +108,16 @@ def set_token(token: str) -> None:
         try:
             # Persist token securely on Android; persist user + remember flag in JsonStore.
             if platform == "android":
-                _SECURE.put(_SECURE_TOKEN_KEY, _TOKEN)
                 store = _get_store()
-                store.put("auth", token="", user=_USER, remember_me=True)
+                secure_ok = False
+                try:
+                    _SECURE.put(_SECURE_TOKEN_KEY, _TOKEN)
+                    secure_ok = bool(_SECURE.get(_SECURE_TOKEN_KEY))
+                except Exception:
+                    secure_ok = False
+                # Fallback: if encrypted prefs are unavailable in this build/device,
+                # store token in JsonStore so "Keep me logged in" still works.
+                store.put("auth", token=("" if secure_ok else _TOKEN), user=_USER, remember_me=True)
             else:
                 store = _get_store()
                 store.put("auth", token=_TOKEN, user=_USER, remember_me=True)
@@ -121,8 +136,15 @@ def set_user(user: Dict[str, Any]) -> None:
     if _REMEMBER_ME:
         try:
             store = _get_store()
-            # Never re-store plaintext token on Android.
-            store.put("auth", token=("" if platform == "android" else _TOKEN), user=_USER, remember_me=True)
+            # Never re-store plaintext token on Android unless secure prefs are unavailable.
+            if platform == "android":
+                try:
+                    secure_ok = bool(_SECURE.get(_SECURE_TOKEN_KEY))
+                except Exception:
+                    secure_ok = False
+                store.put("auth", token=("" if secure_ok else _TOKEN), user=_USER, remember_me=True)
+            else:
+                store.put("auth", token=_TOKEN, user=_USER, remember_me=True)
         except Exception:
             pass
 
@@ -144,13 +166,22 @@ def set_session(*, token: str, user: Dict[str, Any], remember: bool) -> None:
     try:
         store = _get_store()
         if platform == "android" and _REMEMBER_ME and _TOKEN:
-            # Secure token storage on Android
+            # Prefer secure storage; if it isn't available, fall back to JsonStore plaintext
+            # so remember-me remains functional.
+            secure_ok = False
             try:
                 _SECURE.put(_SECURE_TOKEN_KEY, _TOKEN)
+                secure_ok = bool(_SECURE.get(_SECURE_TOKEN_KEY))
             except Exception:
-                # fallback: if encryption fails, store plaintext so login still works
-                pass
-        store.put("auth", token=("" if platform == "android" else _TOKEN), user=_USER, remember_me=_REMEMBER_ME)
+                secure_ok = False
+            store.put(
+                "auth",
+                token=("" if secure_ok else _TOKEN),
+                user=_USER,
+                remember_me=_REMEMBER_ME,
+            )
+        else:
+            store.put("auth", token=("" if platform == "android" else _TOKEN), user=_USER, remember_me=_REMEMBER_ME)
         if not _REMEMBER_ME:
             # If user opted out, remove sensitive session data.
             store.delete("auth")

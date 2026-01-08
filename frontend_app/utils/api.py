@@ -64,7 +64,10 @@ def _friendly_network_error(exc: BaseException, *, url: str) -> str:
                 return f"Server waking up. Please wait a moment and try again. ({host})"
             return f"Request timed out. Check your internet and try again. ({host})"
         if isinstance(exc, req_exc.SSLError):
-            return f"SSL error while contacting server. ({host})"
+            return (
+                f"SSL error while contacting server. "
+                f"Check your device date/time and any VPN/proxy/antivirus interception. ({host})"
+            )
         if isinstance(exc, req_exc.ConnectionError):
             # Common: DNS failure (UnknownHost / gaierror), airplane mode, no data, captive portal.
             return f"Can't reach server. Check internet/DNS and try again. ({host})"
