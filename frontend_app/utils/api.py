@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+from pathlib import Path
 from urllib.parse import urlsplit
 from typing import Any, Dict, Tuple
 import requests
@@ -22,6 +23,57 @@ _UPLOAD_TIMEOUT: Tuple[float, float] = (10.0, 40.0)
 _PING_PATH = "/ping"
 _WARMUP_MIN_INTERVAL_S = 5 * 60  # don't ping on every request
 _last_warmup_monotonic: float = 0.0
+
+
+def _running_on_android() -> bool:
+    # python-for-android sets these at runtime.
+    return bool(
+        os.environ.get("ANDROID_ARGUMENT")
+        or os.environ.get("ANDROID_PRIVATE")
+        or os.environ.get("P4A_BOOTSTRAP")
+    )
+
+
+def _try_enable_os_trust_store() -> None:
+    """
+    Best-effort: on desktop, prefer OS certificate store when available.
+
+    This helps when the desktop device has up-to-date system roots (or enterprise roots)
+    but the bundled certifi CA file is missing/outdated in a packaged app.
+    """
+    if _running_on_android():
+        return
+    try:
+        import truststore  # type: ignore
+
+        truststore.inject_into_ssl()
+    except Exception:
+        # Optional dependency; never break the app if unavailable.
+        return
+
+
+_try_enable_os_trust_store()
+
+
+def _certifi_ca_path() -> str | None:
+    """
+    Return a usable CA bundle path, if available.
+
+    Why:
+    - On some packaged desktop builds (PyInstaller/zipapp), `certifi` may import but
+      its `cacert.pem` may not be present at runtime, causing SSL failures.
+    - On Android, explicit certifi CA tends to be more reliable than system CA discovery.
+    """
+    try:
+        p = Path(certifi.where())
+    except Exception:
+        return None
+    try:
+        if p.is_file() and p.stat().st_size > 0:
+            return str(p)
+    except Exception:
+        return None
+    return None
 
 
 def _base_url() -> str:
@@ -66,7 +118,8 @@ def _friendly_network_error(exc: BaseException, *, url: str) -> str:
         if isinstance(exc, req_exc.SSLError):
             return (
                 f"SSL error while contacting server. "
-                f"Check your device date/time and any VPN/proxy/antivirus interception. ({host})"
+                f"Check your device date/time and any VPN/proxy/antivirus interception. "
+                f"If you're on desktop, update/reinstall the app so its certificates are up to date. ({host})"
             )
         if isinstance(exc, req_exc.ConnectionError):
             # Common: DNS failure (UnknownHost / gaierror), airplane mode, no data, captive portal.
@@ -90,8 +143,12 @@ def _maybe_warmup(*, force: bool = False) -> None:
     url = f"{_base_url()}{_PING_PATH}"
     # Best-effort warmup: if it fails, the subsequent call will surface the error.
     try:
-        # Use certifi explicitly; packaged Android builds sometimes don't find system CAs reliably.
-        requests.get(url, timeout=_DEFAULT_TIMEOUT, verify=certifi.where())
+        # Android: prefer explicit certifi CA. Desktop: let requests pick default trust store.
+        ca = _certifi_ca_path()
+        if _running_on_android() and ca:
+            requests.get(url, timeout=_DEFAULT_TIMEOUT, verify=ca)
+        else:
+            requests.get(url, timeout=_DEFAULT_TIMEOUT)
         _last_warmup_monotonic = now
     except Exception:
         # Don't raise here; let the main request's retry/timeout handling decide messaging.
@@ -109,9 +166,17 @@ def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
         timeout = (float(_DEFAULT_TIMEOUT[0]), float(timeout))
     kwargs["timeout"] = timeout
 
-    # Always point requests at certifi's CA bundle explicitly; this is more reliable in
-    # packaged Android builds than relying on system CA discovery.
-    kwargs.setdefault("verify", certifi.where())
+    # Verify strategy:
+    # - Android: try explicit certifi bundle first, then fall back to requests default.
+    # - Desktop: try requests default first, then (if available) try explicit certifi bundle.
+    ca = _certifi_ca_path()
+    if "verify" in kwargs:
+        verify_order: list[str | None] = [kwargs.get("verify")]  # type: ignore[list-item]
+    else:
+        if _running_on_android():
+            verify_order = ([ca] if ca else []) + [None]
+        else:
+            verify_order = [None] + ([ca] if ca else [])
 
     # Warm up Render/PAAS backend before the "real" call.
     try:
@@ -121,17 +186,34 @@ def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
         pass
 
     # Retry once on Timeout (common with cold starts).
-    for attempt in range(2):
-        try:
-            return requests.request(method, url, **kwargs)
-        except requests.exceptions.Timeout as exc:
-            if attempt == 0:
-                # Force a warmup ping then retry once.
-                _maybe_warmup(force=True)
-                continue
-            raise ApiError(_friendly_network_error(exc, url=url)) from exc
-        except requests.RequestException as exc:
-            raise ApiError(_friendly_network_error(exc, url=url)) from exc
+    last_exc: BaseException | None = None
+    for verify in verify_order:
+        req_kwargs = dict(kwargs)
+        if "verify" not in kwargs and verify is not None:
+            req_kwargs["verify"] = verify
+
+        for attempt in range(2):
+            try:
+                return requests.request(method, url, **req_kwargs)
+            except requests.exceptions.Timeout as exc:
+                last_exc = exc
+                if attempt == 0:
+                    # Force a warmup ping then retry once.
+                    _maybe_warmup(force=True)
+                    continue
+                break
+            except requests.exceptions.SSLError as exc:
+                # Try the next verify option (e.g., default trust store vs certifi bundle).
+                last_exc = exc
+                break
+            except requests.RequestException as exc:
+                last_exc = exc
+                # Non-SSL request failures won't be fixed by switching CA bundles.
+                raise ApiError(_friendly_network_error(exc, url=url)) from exc
+
+    if last_exc is None:
+        last_exc = RuntimeError("Request failed")
+    raise ApiError(_friendly_network_error(last_exc, url=url)) from last_exc
 
 
 def _raise(resp: requests.Response) -> None:
