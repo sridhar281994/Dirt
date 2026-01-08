@@ -60,7 +60,8 @@ version = 0.1
 # comma separated e.g. requirements = sqlite3,kivy
 #
 # Keep requirements minimal to reduce APK/AAB size.
-requirements = python3,kivy,requests,pyjnius
+# Include certifi explicitly so the CA bundle is always packaged (prevents SSL errors).
+requirements = python3,kivy,requests,certifi,pyjnius
 
 # Extra python-for-android flags.
 #
