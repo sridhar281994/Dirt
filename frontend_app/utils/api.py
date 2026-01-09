@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import time
+import logging
+import socket
 from pathlib import Path
 from urllib.parse import urlsplit
 from typing import Any, Dict, Tuple
@@ -17,6 +19,8 @@ class ApiError(RuntimeError):
 
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+_LOG = logging.getLogger("frontend_app.api")
+_OS_TRUSTSTORE_ENABLED = False
 
 _DEFAULT_TIMEOUT: Tuple[float, float] = (15.0, 45.0)  # (connect, read)
 _UPLOAD_TIMEOUT: Tuple[float, float] = (10.0, 40.0)
@@ -46,6 +50,62 @@ def _disable_ssl_verify_for_desktop() -> bool:
     v = (os.getenv("DISABLE_SSL_VERIFY") or "").strip().lower()
     return v in {"1", "true", "yes", "on"}
 
+def _api_debug_enabled() -> bool:
+    v = (os.getenv("API_DEBUG") or "").strip().lower()
+    return v in {"1", "true", "yes", "on"}
+
+
+def _api_debug_ssl_enabled() -> bool:
+    """
+    Extra-verbose HTTP/TLS logging (desktop-only recommended).
+    """
+    v = (os.getenv("API_DEBUG_SSL") or "").strip().lower()
+    return v in {"1", "true", "yes", "on"}
+
+
+def _redact(obj: Any) -> Any:
+    """
+    Best-effort redaction for logs. Never log credentials/OTP tokens.
+    """
+    if isinstance(obj, dict):
+        out: Dict[str, Any] = {}
+        for k, v in obj.items():
+            lk = str(k).lower()
+            if lk in {"password", "otp", "token", "authorization", "auth", "bearer"}:
+                out[k] = "***"
+            else:
+                out[k] = _redact(v)
+        return out
+    if isinstance(obj, (list, tuple)):
+        return [_redact(x) for x in obj]
+    return obj
+
+
+def _debug_network_diagnostics(url: str) -> None:
+    """
+    Emit useful networking diagnostics for local dev.
+    Intentionally best-effort: never raises.
+    """
+    if not _api_debug_enabled():
+        return
+    try:
+        u = urlsplit(url)
+        host = u.hostname
+        port = u.port or (443 if u.scheme == "https" else 80)
+        if host:
+            try:
+                infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+                addrs = []
+                for fam, _, _, _, sockaddr in infos[:8]:
+                    ip = sockaddr[0]
+                    addrs.append(f"{ip} (fam={fam})")
+                _LOG.debug("DNS getaddrinfo host=%s port=%s -> %s", host, port, ", ".join(addrs) or "<none>")
+            except Exception:
+                _LOG.exception("DNS getaddrinfo failed host=%s port=%s", host, port)
+    except Exception:
+        # Never break API calls due to debug helpers.
+        return
+
 
 def _try_enable_os_trust_store() -> None:
     """
@@ -60,6 +120,8 @@ def _try_enable_os_trust_store() -> None:
         import truststore  # type: ignore
 
         truststore.inject_into_ssl()
+        global _OS_TRUSTSTORE_ENABLED
+        _OS_TRUSTSTORE_ENABLED = True
     except Exception:
         # Optional dependency; never break the app if unavailable.
         return
@@ -156,6 +218,17 @@ def _maybe_warmup(*, force: bool = False) -> None:
     url = f"{_base_url()}{_PING_PATH}"
     # Best-effort warmup: if it fails, the subsequent call will surface the error.
     try:
+        if _api_debug_enabled():
+            _LOG.debug(
+                "Warmup ping url=%s disable_ssl_verify=%s android=%s truststore=%s certifi=%s",
+                url,
+                _disable_ssl_verify_for_desktop(),
+                _running_on_android(),
+                _OS_TRUSTSTORE_ENABLED,
+                certifi.where() if hasattr(certifi, "where") else None,
+            )
+            _debug_network_diagnostics(url)
+
         if _disable_ssl_verify_for_desktop():
             requests.get(url, timeout=_DEFAULT_TIMEOUT, verify=False)
             _last_warmup_monotonic = now
@@ -163,6 +236,8 @@ def _maybe_warmup(*, force: bool = False) -> None:
 
         # Android: prefer explicit certifi CA. Desktop: let requests pick default trust store.
         ca = _certifi_ca_path()
+        if _api_debug_enabled():
+            _LOG.debug("Warmup verify strategy android=%s certifi_ca=%s", _running_on_android(), ca)
         if _running_on_android() and ca:
             requests.get(url, timeout=_DEFAULT_TIMEOUT, verify=ca)
         else:
@@ -170,6 +245,8 @@ def _maybe_warmup(*, force: bool = False) -> None:
         _last_warmup_monotonic = now
     except Exception:
         # Don't raise here; let the main request's retry/timeout handling decide messaging.
+        if _api_debug_enabled():
+            _LOG.exception("Warmup ping failed url=%s", url)
         pass
 
 
@@ -188,6 +265,17 @@ def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
     # This is useful when browsers work, but the local Python environment lacks the right CA roots.
     if _disable_ssl_verify_for_desktop() and "verify" not in kwargs:
         kwargs["verify"] = False
+
+    if _api_debug_ssl_enabled() and not _running_on_android():
+        # Extra verbose HTTP/TLS debug output.
+        try:
+            import http.client as http_client
+
+            http_client.HTTPConnection.debuglevel = 1
+            logging.getLogger("urllib3").setLevel(logging.DEBUG)
+            logging.getLogger("urllib3").propagate = True
+        except Exception:
+            pass
 
     # Verify strategy:
     # - Android: try explicit certifi bundle first, then fall back to requests default.
@@ -217,9 +305,24 @@ def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
 
         for attempt in range(2):
             try:
+                if _api_debug_enabled():
+                    _LOG.debug(
+                        "HTTP %s %s attempt=%s verify=%s timeout=%s headers=%s params=%s json=%s",
+                        method,
+                        url,
+                        attempt + 1,
+                        req_kwargs.get("verify", None),
+                        req_kwargs.get("timeout", None),
+                        _redact(req_kwargs.get("headers", None)),
+                        _redact(req_kwargs.get("params", None)),
+                        _redact(req_kwargs.get("json", None)),
+                    )
+                    _debug_network_diagnostics(url)
                 return requests.request(method, url, **req_kwargs)
             except requests.exceptions.Timeout as exc:
                 last_exc = exc
+                if _api_debug_enabled():
+                    _LOG.exception("HTTP timeout method=%s url=%s verify=%s", method, url, req_kwargs.get("verify", None))
                 if attempt == 0:
                     # Force a warmup ping then retry once.
                     _maybe_warmup(force=True)
@@ -228,14 +331,26 @@ def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
             except requests.exceptions.SSLError as exc:
                 # Try the next verify option (e.g., default trust store vs certifi bundle).
                 last_exc = exc
+                if _api_debug_enabled():
+                    _LOG.exception("HTTP SSL error method=%s url=%s verify=%s", method, url, req_kwargs.get("verify", None))
                 break
             except requests.RequestException as exc:
                 last_exc = exc
                 # Non-SSL request failures won't be fixed by switching CA bundles.
+                if _api_debug_enabled():
+                    _LOG.exception(
+                        "HTTP request error method=%s url=%s verify=%s type=%s",
+                        method,
+                        url,
+                        req_kwargs.get("verify", None),
+                        type(exc).__name__,
+                    )
                 raise ApiError(_friendly_network_error(exc, url=url)) from exc
 
     if last_exc is None:
         last_exc = RuntimeError("Request failed")
+    if _api_debug_enabled():
+        _LOG.exception("HTTP failed after retries method=%s url=%s", method, url)
     raise ApiError(_friendly_network_error(last_exc, url=url)) from last_exc
 
 
