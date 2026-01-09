@@ -34,6 +34,19 @@ def _running_on_android() -> bool:
     )
 
 
+def _disable_ssl_verify_for_desktop() -> bool:
+    """
+    Desktop-only escape hatch for local dev/testing.
+
+    If enabled, HTTPS certificate verification is disabled (verify=False).
+    This is intentionally never enabled on Android, so mobile behavior stays unchanged.
+    """
+    if _running_on_android():
+        return False
+    v = (os.getenv("DISABLE_SSL_VERIFY") or "").strip().lower()
+    return v in {"1", "true", "yes", "on"}
+
+
 def _try_enable_os_trust_store() -> None:
     """
     Best-effort: on desktop, prefer OS certificate store when available.
@@ -143,6 +156,11 @@ def _maybe_warmup(*, force: bool = False) -> None:
     url = f"{_base_url()}{_PING_PATH}"
     # Best-effort warmup: if it fails, the subsequent call will surface the error.
     try:
+        if _disable_ssl_verify_for_desktop():
+            requests.get(url, timeout=_DEFAULT_TIMEOUT, verify=False)
+            _last_warmup_monotonic = now
+            return
+
         # Android: prefer explicit certifi CA. Desktop: let requests pick default trust store.
         ca = _certifi_ca_path()
         if _running_on_android() and ca:
@@ -166,12 +184,17 @@ def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
         timeout = (float(_DEFAULT_TIMEOUT[0]), float(timeout))
     kwargs["timeout"] = timeout
 
+    # Desktop-only testing: allow disabling SSL verification with an env var.
+    # This is useful when browsers work, but the local Python environment lacks the right CA roots.
+    if _disable_ssl_verify_for_desktop() and "verify" not in kwargs:
+        kwargs["verify"] = False
+
     # Verify strategy:
     # - Android: try explicit certifi bundle first, then fall back to requests default.
     # - Desktop: try requests default first, then (if available) try explicit certifi bundle.
     ca = _certifi_ca_path()
     if "verify" in kwargs:
-        verify_order: list[str | None] = [kwargs.get("verify")]  # type: ignore[list-item]
+        verify_order: list[str | bool | None] = [kwargs.get("verify")]  # type: ignore[list-item]
     else:
         if _running_on_android():
             verify_order = ([ca] if ca else []) + [None]
