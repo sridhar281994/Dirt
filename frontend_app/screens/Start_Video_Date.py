@@ -103,8 +103,9 @@ class StartVideoDateScreen(Screen):
             except Exception:
                 is_portrait = True
             if is_portrait:
-                # Scatter rotation is counter-clockwise; most devices need a clockwise 90° correction.
-                rotation = -90
+                # Most devices need -90 in portrait, but some OEMs invert the FRONT camera
+                # by 180° under this transform. Use +90 for front camera.
+                rotation = 90 if bool(self.is_front_camera) else -90
 
         self.local_preview_rotation = rotation
         self.local_preview_swap_wh = False
@@ -299,9 +300,9 @@ class StartVideoDateScreen(Screen):
             box_is_portrait = bh >= bw
 
             if tex_is_landscape and box_is_portrait:
-                self.local_preview_rotation = -90
+                self.local_preview_rotation = 90 if bool(self.is_front_camera) else -90
             elif (not tex_is_landscape) and (not box_is_portrait):
-                self.local_preview_rotation = -90
+                self.local_preview_rotation = 90 if bool(self.is_front_camera) else -90
             else:
                 self.local_preview_rotation = 0
 

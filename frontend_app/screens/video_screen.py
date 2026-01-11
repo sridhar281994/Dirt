@@ -288,28 +288,28 @@ class VideoScreen(Screen):
         """
         Update preview rotation/mirroring based on active camera.
         """
+        # Determine front/back first (rotation differs on some devices).
+        is_front = int(self.active_camera_index or 0) == int(self.front_camera_index or 1)
+        self.is_front_camera = bool(is_front)
+        self.local_preview_scale_x = -1 if is_front else 1
+
         # Default: no rotation.
         rotation = 0
 
         # Android: Kivy's legacy Camera backend often delivers frames in landscape.
-        # When our app UI is portrait (see buildozer.spec), that appears "rotated".
-        # We correct by rotating the preview container in KV.
+        # When our app UI is portrait, that appears rotated. Most devices want -90,
+        # but several OEMs invert the FRONT camera by 180° under this transform.
+        #
+        # Fix: use +90 for front camera in portrait, -90 for back camera in portrait.
         if platform == "android":
             try:
                 is_portrait = float(getattr(Window, "height", 0) or 0) >= float(getattr(Window, "width", 0) or 0)
             except Exception:
                 is_portrait = True
             if is_portrait:
-                # Kivy Scatter rotation is counter-clockwise; most Android camera previews
-                # need a clockwise 90° correction in portrait.
-                rotation = -90
+                rotation = 90 if is_front else -90
 
         self.local_preview_rotation = rotation
-        
-        # Keep mirroring for front camera.
-        is_front = int(self.active_camera_index or 0) == int(self.front_camera_index or 1)
-        self.is_front_camera = bool(is_front)
-        self.local_preview_scale_x = -1 if is_front else 1
 
     def _cancel_camera_monitors(self) -> None:
         for ev_name in ("_camera_health_ev", "_preview_autofix_ev"):
@@ -547,9 +547,9 @@ class VideoScreen(Screen):
 
             # If the texture aspect is "opposite" the box aspect, we likely need 90°.
             if tex_is_landscape and box_is_portrait:
-                self.local_preview_rotation = -90
+                self.local_preview_rotation = 90 if bool(self.is_front_camera) else -90
             elif (not tex_is_landscape) and (not box_is_portrait):
-                self.local_preview_rotation = -90
+                self.local_preview_rotation = 90 if bool(self.is_front_camera) else -90
             else:
                 self.local_preview_rotation = 0
 
@@ -1016,18 +1016,37 @@ class VideoScreen(Screen):
             was_playing = bool(self.camera_should_play)
             self.camera_should_play = False
 
+            # Force-disconnect first. On many OEM ROMs, switching index while the
+            # legacy Camera service is still releasing leads to a black preview.
+            try:
+                if hasattr(camera, "index"):
+                    camera.index = -2
+            except Exception:
+                pass
+
             # Flip using detected Android IDs (safer than assuming 0/1).
             current = int(self.active_camera_index or 0)
             back = int(self.back_camera_index or 0)
             front = int(self.front_camera_index or 1)
-            new_index = front if current == back else back
-            self.active_camera_index = int(new_index)
+            target = front if current == back else back
+            self.active_camera_index = int(target)
             self._update_local_preview_transform()
 
-            camera.index = int(self.active_camera_index)
+            def _resume(*_dt):
+                try:
+                    if hasattr(camera, "index"):
+                        camera.index = int(target)
+                except Exception:
+                    pass
+                if was_playing:
+                    try:
+                        self.camera_should_play = True
+                    except Exception:
+                        pass
+                    # Start once the Activity focus is stable.
+                    Clock.schedule_once(lambda *_: self._start_camera_when_ready(), 0.05)
 
-            if was_playing:
-                Clock.schedule_once(lambda *_: self._start_camera_when_ready(), 0.25)
+            Clock.schedule_once(_resume, 0.35)
         except Exception:
             Logger.exception("VideoScreen: failed to toggle camera")
             # Best-effort: resume preview if we paused it.
