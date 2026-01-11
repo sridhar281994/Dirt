@@ -111,10 +111,10 @@ fullscreen = 0
 # (list) Permissions
 android.permissions = INTERNET,CAMERA,RECORD_AUDIO,MODIFY_AUDIO_SETTINGS,ACCESS_NETWORK_STATE
 
-# Agora RTC SDK (Android)
-# NOTE: Agora 4.5.0 publishes `full-sdk` on Maven Central; `rtc-sdk` is not
-# available there, which caused CI Gradle resolution failures.
-android.gradle_dependencies = io.agora.rtc:full-sdk:4.5.0,androidx.security:security-crypto:1.1.0-alpha06
+# WebRTC SDK (Android) + AndroidX Security (used for encrypted prefs)
+#
+# Replaces Agora with Google WebRTC (org.webrtc).
+android.gradle_dependencies = org.webrtc:google-webrtc:1.0.32006,androidx.security:security-crypto:1.1.0-alpha06
 
 # Gradle repositories required to resolve Agora artifacts.
 android.add_gradle_repositories = mavenCentral()

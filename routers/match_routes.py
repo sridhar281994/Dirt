@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import ChatMessage, ChatSession, Swipe, User
 from routers.auth import get_current_user
-from utils.agora_rtc_token import build_rtc_token_from_env
+from models import WebRTCSignal
 
 
 router = APIRouter(tags=["match"])
@@ -108,30 +108,6 @@ def _video_set_in_call(db: Session, *, u: User, session_id: int, partner_id: int
 
 
 def _video_build_payload(*, session: ChatSession, me: User, other: User, duration_seconds: int = 60) -> dict:
-    agora_app_id = os.getenv("AGORA_ID") or os.getenv("AGORA_APP_ID") or ""
-    agora_app_id = (agora_app_id or "").strip()
-    if not agora_app_id:
-        # Without an App ID, clients cannot join an Agora RTC channel at all.
-        # Fail fast with a clear error instead of returning a "successful match"
-        # that results in a black screen on the client.
-        raise HTTPException(503, "Video calling is not configured (AGORA_APP_ID missing).")
-    # Agora App IDs are typically 32 chars; catch common misconfig early.
-    if len(agora_app_id) != 32:
-        raise HTTPException(503, "Video calling is misconfigured (invalid AGORA_APP_ID).")
-    channel = f"video_{session.id}"
-    try:
-        agora_uid = int(getattr(me, "id", 0) or 0)
-    except Exception:
-        agora_uid = 0
-
-    # Token is required when Agora project has certificate enabled.
-    # If credentials are missing, token will be "" and client may still join
-    # only if the Agora project is configured for "App ID" (no token).
-    try:
-        ttl = int(os.getenv("AGORA_TOKEN_TTL_SECONDS") or 3600)
-    except Exception:
-        ttl = 3600
-    token, expire_ts = build_rtc_token_from_env(channel_name=channel, uid=agora_uid, ttl_seconds=ttl)
     try:
         duration_seconds = int(duration_seconds or 0)
     except Exception:
@@ -139,13 +115,27 @@ def _video_build_payload(*, session: ChatSession, me: User, other: User, duratio
     if duration_seconds <= 0:
         duration_seconds = 60
 
+    # WebRTC config (STUN-only by default). TURN can be added via env later.
+    stun_urls = [
+        "stun:stun.l.google.com:19302",
+        "stun:stun1.l.google.com:19302",
+    ]
+
     return {
         "ok": True,
-        "agora_app_id": agora_app_id,
-        "channel": channel,
-        "agora_uid": agora_uid,
-        "agora_token": token,
-        "agora_token_expire_ts": int(expire_ts or (int(time.time()) + ttl)),
+        # Backwards compatible keys (kept so older clients don't crash). New clients ignore these.
+        "agora_app_id": "",
+        "channel": "",
+        "agora_uid": int(getattr(me, "id", 0) or 0),
+        "agora_token": "",
+        "agora_token_expire_ts": 0,
+        # New: WebRTC signaling session.
+        "webrtc": {
+            "session_id": int(session.id),
+            "stun_urls": stun_urls,
+            # Offerer is user_a by convention (deterministic, no race).
+            "role": "offerer" if int(session.user_a_id) == int(me.id) else "answerer",
+        },
         "duration_seconds": int(duration_seconds),
         "session": {
             "id": session.id,
@@ -445,6 +435,7 @@ def video_token(
 
     Useful if the client needs to re-join the channel (app resumed, token expired, etc.).
     """
+    # Deprecated: kept for backwards compatibility with older clients.
     sess = (
         db.query(ChatSession)
         .filter(
@@ -456,30 +447,13 @@ def video_token(
     )
     if not sess:
         raise HTTPException(404, "Session not found")
-
-    agora_app_id = os.getenv("AGORA_ID") or os.getenv("AGORA_APP_ID") or ""
-    agora_app_id = (agora_app_id or "").strip()
-    if not agora_app_id:
-        raise HTTPException(503, "Video calling is not configured (AGORA_APP_ID missing).")
-    if len(agora_app_id) != 32:
-        raise HTTPException(503, "Video calling is misconfigured (invalid AGORA_APP_ID).")
-    channel = f"video_{sess.id}"
-    try:
-        agora_uid = int(getattr(user, "id", 0) or 0)
-    except Exception:
-        agora_uid = 0
-    try:
-        ttl = int(os.getenv("AGORA_TOKEN_TTL_SECONDS") or 3600)
-    except Exception:
-        ttl = 3600
-    token, expire_ts = build_rtc_token_from_env(channel_name=channel, uid=agora_uid, ttl_seconds=ttl)
     return {
         "ok": True,
-        "agora_app_id": agora_app_id,
-        "channel": channel,
-        "agora_uid": agora_uid,
-        "agora_token": token,
-        "agora_token_expire_ts": int(expire_ts or (int(time.time()) + ttl)),
+        "agora_app_id": "",
+        "channel": "",
+        "agora_uid": int(getattr(user, "id", 0) or 0),
+        "agora_token": "",
+        "agora_token_expire_ts": 0,
     }
 
 
@@ -520,6 +494,11 @@ def end_video_call(
                 u = db.query(User).filter(User.id == uid).first()
                 if u:
                     _video_reset_state(db, u)
+            # Cleanup WebRTC signaling messages for this session.
+            try:
+                db.query(WebRTCSignal).filter(WebRTCSignal.session_id == sid).delete()
+            except Exception:
+                pass
             db.commit()
             return {"ok": True}
 

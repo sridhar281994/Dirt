@@ -1175,10 +1175,10 @@
                 fit_mode: "contain"
                 size_hint: 1, 1
                 pos_hint: {"center_x": 0.5, "center_y": 0.5}
-                # When using Agora, the real video is rendered by a native SurfaceView overlay.
+                # When using WebRTC, the real video is rendered by a native Android overlay.
                 # Hide the placeholder avatar (initials) so it doesn't look like "only letters".
-                opacity: 0 if root.use_agora else 1
-                disabled: True if root.use_agora else False
+                opacity: 0 if root.use_webrtc else 1
+                disabled: True if root.use_webrtc else False
 
             # Loading "GIF" (animated spinner) shown until connected to an online match.
             Scatter:
@@ -1406,9 +1406,9 @@
             size: dp(120), dp(160)
             # Keep it at bottom-right, just above the controls overlay.
             pos: root.width - self.width - dp(10), controls_overlay.height + dp(10)
-            # When using Agora, local preview is rendered by the native overlay.
-            opacity: 0 if root.use_agora else 1
-            disabled: True if root.use_agora else False
+            # When using WebRTC, local preview is rendered by the native overlay.
+            opacity: 0 if root.use_webrtc else 1
+            disabled: True if root.use_webrtc else False
             
             canvas.before:
                 Color:
