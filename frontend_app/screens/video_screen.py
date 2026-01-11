@@ -332,6 +332,12 @@ class VideoScreen(Screen):
             stun_urls = list(conf.get("stun_urls") or [])
         except Exception:
             stun_urls = []
+        ice_servers = conf.get("ice_servers")
+        if not isinstance(ice_servers, list):
+            ice_servers = None
+        ws_url = conf.get("ws_url")
+        if not isinstance(ws_url, str):
+            ws_url = None
         role = str(conf.get("role") or self.webrtc_role or "").strip().lower()
         if role not in {"offerer", "answerer"}:
             # Backend should always send this; fallback to offerer for safety.
@@ -346,6 +352,8 @@ class VideoScreen(Screen):
                 session_id=int(self.session_id or 0),
                 role=str(role),
                 stun_urls=stun_urls or ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"],
+                ice_servers=ice_servers,
+                ws_url=ws_url,
             ),
             prefer_front_camera=bool(self.is_front_camera),
         )

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from queue import Empty, Queue
 from threading import Event, Thread
 from typing import Any, Callable, Dict, Optional
 from weakref import ref
@@ -10,6 +12,7 @@ from kivy.logger import Logger
 from kivy.metrics import dp
 from kivy.utils import platform
 
+from frontend_app.utils.storage import get_token
 from frontend_app.utils.api import (
     api_webrtc_get_answer,
     api_webrtc_get_ice,
@@ -30,6 +33,8 @@ class WebRTCJoinInfo:
     session_id: int
     role: str  # offerer|answerer
     stun_urls: list[str]
+    ice_servers: list[dict] | None = None
+    ws_url: str | None = None
 
 
 class WebRTCAndroidClient:
@@ -42,6 +47,7 @@ class WebRTCAndroidClient:
 
     Signaling:
     - HTTP polling via backend endpoints (/api/video/webrtc/*).
+    - If ws_url is provided (and websocket-client is installed), uses WebSocket signaling.
     """
 
     def __init__(
@@ -80,6 +86,12 @@ class WebRTCAndroidClient:
         self._connected_fired = False
         self._is_muted = False
         self._prefer_front = False
+        self._ws = None
+        self._ws_thread: Thread | None = None
+        self._ws_recv_q: Queue[dict] = Queue()
+        self._ws_enabled: bool = False
+        self._ws_url: str = ""
+        self._token: str = ""
 
     @property
     def is_available(self) -> bool:
@@ -390,7 +402,7 @@ class WebRTCAndroidClient:
         except Exception:
             Logger.exception("WebRTCAndroidClient: failed creating End button")
 
-    def _create_peer_connection(self, *, stun_urls: list[str]) -> bool:
+    def _create_peer_connection(self, *, stun_urls: list[str], ice_servers: list[dict] | None = None) -> bool:
         if platform != "android":
             return False
         if not self._ensure_webrtc_factory():
@@ -502,11 +514,44 @@ class WebRTCAndroidClient:
                     return
 
             servers = ArrayList()
-            for url in (stun_urls or []):
+
+            def _add_server(url: str, username: str | None = None, credential: str | None = None) -> None:
                 try:
-                    servers.add(IceServer.builder(str(url)).createIceServer())
+                    b = IceServer.builder(str(url))
+                    if username:
+                        try:
+                            b = b.setUsername(str(username))
+                        except Exception:
+                            pass
+                    if credential:
+                        try:
+                            b = b.setPassword(str(credential))
+                        except Exception:
+                            pass
+                    servers.add(b.createIceServer())
                 except Exception:
-                    pass
+                    return
+
+            if ice_servers and isinstance(ice_servers, list):
+                for s in ice_servers:
+                    if not isinstance(s, dict):
+                        continue
+                    urls = s.get("urls")
+                    username = s.get("username")
+                    credential = s.get("credential")
+                    if isinstance(urls, str) and urls.strip():
+                        _add_server(urls.strip(), username=username, credential=credential)
+                    elif isinstance(urls, list):
+                        for u in urls:
+                            if isinstance(u, str) and u.strip():
+                                _add_server(u.strip(), username=username, credential=credential)
+
+            # Fallback: STUN-only
+            if servers.size() <= 0:
+                for url in (stun_urls or []):
+                    if not url:
+                        continue
+                    _add_server(str(url))
 
             rtc_config = PeerConnectionRTCConfiguration(servers)
             observer = PCObserver()
@@ -640,7 +685,10 @@ class WebRTCAndroidClient:
         if sid <= 0 or self._stop_ev.is_set():
             return
         try:
-            api_webrtc_post_ice(session_id=sid, candidate=candidate_payload or {})
+            if self._ws_enabled:
+                self._ws_send(kind="ice", payload=candidate_payload or {})
+            else:
+                api_webrtc_post_ice(session_id=sid, candidate=candidate_payload or {})
         except Exception:
             # signaling errors are best-effort; polling will eventually recover
             return
@@ -670,13 +718,16 @@ class WebRTCAndroidClient:
         self._connected_fired = False
         self._stop_ev.clear()
         self._prefer_front = bool(prefer_front_camera)
+        self._ws_enabled = False
+        self._ws_url = str(info.ws_url or "").strip()
+        self._token = str(get_token() or "").strip()
 
         self._ensure_container()
         self._clear_views()
         self._create_renderers()
         self._add_native_end_button()
 
-        ok = self._create_peer_connection(stun_urls=list(info.stun_urls or []))
+        ok = self._create_peer_connection(stun_urls=list(info.stun_urls or []), ice_servers=info.ice_servers)
         if not ok:
             return False
         self._start_local_media(prefer_front=bool(prefer_front_camera))
@@ -686,11 +737,104 @@ class WebRTCAndroidClient:
         self._signaling_thread.start()
         return True
 
+    def _ws_connect(self) -> None:
+        if not self._ws_url or not self._token or self._stop_ev.is_set():
+            return
+        try:
+            import websocket  # type: ignore
+        except Exception:
+            return
+
+        url = self._ws_url
+        if "?" in url:
+            url = f"{url}&token={self._token}"
+        else:
+            url = f"{url}?token={self._token}"
+
+        parent_ref = ref(self)
+
+        def on_message(_ws, message):
+            parent = parent_ref()
+            if not parent or parent._stop_ev.is_set():
+                return
+            try:
+                obj = json.loads(message or "{}")
+            except Exception:
+                return
+            if not isinstance(obj, dict):
+                return
+            if str(obj.get("type") or "").strip().lower() != "signal":
+                return
+            try:
+                if int(obj.get("call_id") or 0) != int(parent._session_id or 0):
+                    return
+            except Exception:
+                return
+            try:
+                parent._ws_recv_q.put_nowait(obj)
+            except Exception:
+                return
+
+        def on_open(_ws):
+            parent = parent_ref()
+            if parent:
+                parent._ws_enabled = True
+
+        def on_close(_ws, *_args):
+            parent = parent_ref()
+            if parent:
+                parent._ws_enabled = False
+
+        def on_error(_ws, _err):
+            parent = parent_ref()
+            if parent:
+                parent._ws_enabled = False
+
+        try:
+            ws_app = websocket.WebSocketApp(url, on_open=on_open, on_message=on_message, on_close=on_close, on_error=on_error)
+        except Exception:
+            return
+
+        self._ws = ws_app
+
+        def _run():
+            try:
+                ws_app.run_forever(ping_interval=20, ping_timeout=10)
+            except Exception:
+                pass
+            finally:
+                parent = parent_ref()
+                if parent:
+                    parent._ws_enabled = False
+
+        self._ws_thread = Thread(target=_run, daemon=True)
+        self._ws_thread.start()
+
+    def _ws_send(self, *, kind: str, payload: dict) -> None:
+        if not self._ws_enabled or self._ws is None or self._stop_ev.is_set():
+            return
+        try:
+            msg = {
+                "type": "signal",
+                "call_id": int(self._session_id or 0),
+                "kind": str(kind),
+                "payload": payload or {},
+            }
+            self._ws.send(json.dumps(msg))
+        except Exception:
+            self._ws_enabled = False
+
     def _run_signaling_loop(self) -> None:
         sid = int(self._session_id or 0)
         if sid <= 0:
             return
         role = (self._role or "").strip().lower()
+
+        # Try websocket signaling first (best-effort).
+        try:
+            self._ws_connect()
+        except Exception:
+            pass
 
         # Offerer creates offer immediately.
         if role == "offerer":
@@ -700,15 +844,44 @@ class WebRTCAndroidClient:
         if role == "answerer":
             self._wait_offer_then_answer()
 
-        # Both sides: poll ICE (and for offerer, poll answer) until stopped.
+        # Both sides: websocket receive loop (fallback to polling if WS unavailable).
         while not self._stop_ev.is_set() and self._pc is not None:
             try:
-                if role == "offerer":
-                    self._poll_answer_once()
-                self._poll_ice_once()
+                if self._ws_enabled:
+                    try:
+                        msg = self._ws_recv_q.get(timeout=0.35)
+                    except Empty:
+                        msg = None
+                    if isinstance(msg, dict):
+                        self._handle_ws_signal(msg)
+                else:
+                    if role == "offerer":
+                        self._poll_answer_once()
+                    self._poll_ice_once()
             except Exception:
                 pass
-            self._stop_ev.wait(0.35)
+            if not self._ws_enabled:
+                self._stop_ev.wait(0.35)
+
+    def _handle_ws_signal(self, msg: dict) -> None:
+        kind = str(msg.get("kind") or "").strip().lower()
+        payload = msg.get("payload") or {}
+        if not isinstance(payload, dict):
+            payload = {}
+        if kind == "offer":
+            if (self._role or "").strip().lower() == "answerer":
+                sdp = str(payload.get("sdp") or "")
+                if sdp:
+                    self._set_remote_offer_and_answer(sdp)
+        elif kind == "answer":
+            if (self._role or "").strip().lower() == "offerer":
+                sdp = str(payload.get("sdp") or "")
+                if sdp:
+                    self._set_remote_answer(sdp)
+        elif kind == "ice":
+            self._add_ice_candidate(payload)
+        elif kind == "bye":
+            Clock.schedule_once(lambda *_: self.stop(), 0)
 
     def _create_and_send_offer(self) -> None:
         if self._pc is None or self._stop_ev.is_set():
@@ -732,10 +905,13 @@ class WebRTCAndroidClient:
 
                     def _after_set():
                         try:
-                            api_webrtc_post_offer(
-                                session_id=int(parent._session_id),
-                                payload={"type": "offer", "sdp": str(desc.description or "")},
-                            )
+                            if parent._ws_enabled:
+                                parent._ws_send(kind="offer", payload={"type": "offer", "sdp": str(desc.description or "")})
+                            else:
+                                api_webrtc_post_offer(
+                                    session_id=int(parent._session_id),
+                                    payload={"type": "offer", "sdp": str(desc.description or "")},
+                                )
                         except Exception:
                             pass
 
@@ -760,6 +936,18 @@ class WebRTCAndroidClient:
     def _wait_offer_then_answer(self) -> None:
         # Poll until we have an offer (or stop requested).
         while not self._stop_ev.is_set() and self._pc is not None:
+            if self._ws_enabled:
+                try:
+                    msg = self._ws_recv_q.get(timeout=0.35)
+                except Empty:
+                    msg = None
+                if isinstance(msg, dict) and str(msg.get("kind") or "").strip().lower() == "offer":
+                    payload = msg.get("payload") or {}
+                    if isinstance(payload, dict):
+                        sdp = str(payload.get("sdp") or "")
+                        if sdp:
+                            self._set_remote_offer_and_answer(sdp)
+                            return
             try:
                 data = api_webrtc_get_offer(session_id=int(self._session_id))
                 offer = data.get("offer")
@@ -835,10 +1023,13 @@ class WebRTCAndroidClient:
 
                     def _after_set():
                         try:
-                            api_webrtc_post_answer(
-                                session_id=int(parent._session_id),
-                                payload={"type": "answer", "sdp": str(desc.description or "")},
-                            )
+                            if parent._ws_enabled:
+                                parent._ws_send(kind="answer", payload={"type": "answer", "sdp": str(desc.description or "")})
+                            else:
+                                api_webrtc_post_answer(
+                                    session_id=int(parent._session_id),
+                                    payload={"type": "answer", "sdp": str(desc.description or "")},
+                                )
                         except Exception:
                             pass
 
@@ -989,6 +1180,16 @@ class WebRTCAndroidClient:
     def stop(self) -> None:
         self._stop_ev.set()
         try:
+            if self._ws is not None:
+                try:
+                    self._ws.close()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        self._ws = None
+        self._ws_enabled = False
+        try:
             if self._pc is not None:
                 try:
                     self._pc.close()
@@ -1039,6 +1240,8 @@ class WebRTCAndroidClient:
         self._role = ""
         self._ice_since_id = 0
         self._connected_fired = False
+        self._ws_url = ""
+        self._token = ""
 
         if self._on_disconnected:
             try:

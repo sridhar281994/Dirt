@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import json
 import os
 import random
 import time
 from typing import Optional
 
 from sqlalchemy import or_, func
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,8 @@ from database import get_db
 from models import ChatMessage, ChatSession, Swipe, User
 from routers.auth import get_current_user
 from models import WebRTCSignal
+from utils.redis_client import get_async_redis
+from utils.turn_credentials import build_ice_servers
 
 
 router = APIRouter(tags=["match"])
@@ -115,11 +118,14 @@ def _video_build_payload(*, session: ChatSession, me: User, other: User, duratio
     if duration_seconds <= 0:
         duration_seconds = 60
 
-    # WebRTC config (STUN-only by default). TURN can be added via env later.
+    # WebRTC config:
+    # - STUN list is kept for backwards compatibility with older Android clients.
+    # - New clients should prefer `ice_servers` (STUN + optional TURN REST creds).
     stun_urls = [
         "stun:stun.l.google.com:19302",
         "stun:stun1.l.google.com:19302",
     ]
+    ice_servers = build_ice_servers(user_id=int(getattr(me, "id", 0) or 0))
 
     return {
         "ok": True,
@@ -133,6 +139,7 @@ def _video_build_payload(*, session: ChatSession, me: User, other: User, duratio
         "webrtc": {
             "session_id": int(session.id),
             "stun_urls": stun_urls,
+            "ice_servers": ice_servers,
             # Offerer is user_a by convention (deterministic, no race).
             "role": "offerer" if int(session.user_a_id) == int(me.id) else "answerer",
         },
@@ -156,6 +163,25 @@ def _video_build_payload(*, session: ChatSession, me: User, other: User, duratio
             "is_on_call": True,
         },
     }
+
+
+def _ws_url_from_request(request: Request) -> str:
+    """
+    Build websocket base URL for clients.
+    Returned value does NOT include the token query param.
+    """
+    try:
+        base = str(request.base_url).rstrip("/")
+    except Exception:
+        base = ""
+    if base.startswith("https://"):
+        base = "wss://" + base[len("https://") :]
+    elif base.startswith("http://"):
+        base = "ws://" + base[len("http://") :]
+    if not base:
+        # Fallback for local/dev use.
+        base = "ws://localhost:8000"
+    return f"{base}/api/ws"
 
 
 @router.get("/profiles/next")
@@ -263,8 +289,9 @@ def start_session(
 
 
 @router.post("/video/match")
-def video_match(
+async def video_match(
     payload: VideoMatchIn,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -282,6 +309,8 @@ def video_match(
     if pref not in {"male", "female", "both"}:
         pref = "both"
 
+    ws_url = _ws_url_from_request(request)
+
     # If this user was already matched (e.g. the OTHER side created the session),
     # return the assigned session so both devices get the same session_id/channel.
     try:
@@ -294,14 +323,27 @@ def video_match(
             other_id = sess.user_b_id if sess.user_a_id == user.id else sess.user_a_id
             other = db.get(User, other_id)
             if other:
-                return _video_build_payload(session=sess, me=user, other=other)
+                out = _video_build_payload(session=sess, me=user, other=other)
+                try:
+                    out.setdefault("webrtc", {})
+                    out["webrtc"]["ws_url"] = ws_url
+                except Exception:
+                    pass
+                return out
         # Stale state: reset and continue as searching.
         _video_reset_state(db, user)
         db.commit()
 
-    # Mark user as actively searching (opt-in queue).
-    _video_set_searching(db, user)
-    db.commit()
+    # Mark user as actively searching (best-effort; throttled).
+    try:
+        should_write = (getattr(user, "video_state", None) != "searching") or not getattr(user, "video_state_updated_at", None)
+        if not should_write and user.video_state_updated_at:
+            should_write = (datetime.utcnow() - user.video_state_updated_at).total_seconds() >= 30
+        if should_write:
+            _video_set_searching(db, user)
+            db.commit()
+    except Exception:
+        db.rollback()
 
     me = _norm_gender(user.gender)
     desired_gender: Optional[str] = None
@@ -343,11 +385,188 @@ def video_match(
     for s in recent_sessions:
         excluded_ids.add(s.user_b_id if s.user_a_id == user.id else s.user_a_id)
     
-    # --- Query ---
+    # Prefer Redis matchmaking queue for scale (no random DB scans).
+    r = get_async_redis()
+    if r is not None:
+        try:
+            # Queue by "desired partner gender" (what the user wants to receive).
+            desired_bucket = (desired_gender or "any").strip().lower()
+            if desired_bucket not in {"male", "female", "any"}:
+                desired_bucket = "any"
+
+            my_id = int(user.id)
+            my_gender = me or "any"
+            if my_gender not in {"male", "female"}:
+                my_gender = "any"
+
+            # Users who can accept *me* are waiting in:
+            # - q:<my_gender> (they want my gender)
+            # - q:any         (they'll accept anyone)
+            candidate_queues = []
+            if my_gender in {"male", "female"}:
+                candidate_queues.append(f"mm:video:q:{my_gender}")
+            candidate_queues.append("mm:video:q:any")
+
+            my_queue = f"mm:video:q:{desired_bucket}"
+            meta_key = f"mm:video:meta:{my_id}"
+            now = int(time.time())
+
+            # Store lightweight matching metadata (TTL means stale users drop out naturally).
+            await r.hset(
+                meta_key,
+                mapping={
+                    "gender": my_gender,
+                    "desired": desired_bucket,
+                    "queue": my_queue,
+                    "is_sub": "1" if bool(user.is_subscribed) else "0",
+                    "free_opp_used": str(int(getattr(user, "free_video_opposite_count", 0) or 0)),
+                    "wants_opp_trial": "1" if bool(wants_opposite_trial) else "0",
+                    "ts": str(now),
+                },
+            )
+            await r.expire(meta_key, 120)
+            await r.zadd(my_queue, {str(my_id): float(now)})
+            await r.expire(my_queue, 180)
+
+            async def _try_match_from_queue(qkey: str) -> Optional[int]:
+                # Clean very old entries (best-effort).
+                try:
+                    await r.zremrangebyscore(qkey, 0, float(now - 180))
+                except Exception:
+                    pass
+                ids = await r.zrange(qkey, 0, 30)
+                for cid_raw in ids:
+                    try:
+                        cid = int(cid_raw)
+                    except Exception:
+                        continue
+                    if cid <= 0 or cid == my_id:
+                        continue
+                    cmeta_key = f"mm:video:meta:{cid}"
+                    cmeta = await r.hgetall(cmeta_key)
+                    if not cmeta:
+                        # Stale entry; remove from queue.
+                        try:
+                            await r.zrem(qkey, str(cid))
+                        except Exception:
+                            pass
+                        continue
+
+                    c_gender = (cmeta.get("gender") or "any").strip().lower()
+                    c_desired = (cmeta.get("desired") or "any").strip().lower()
+                    c_queue = (cmeta.get("queue") or f"mm:video:q:{c_desired}").strip()
+                    c_is_sub = (cmeta.get("is_sub") or "0") == "1"
+                    try:
+                        c_free_opp_used = int(cmeta.get("free_opp_used") or 0)
+                    except Exception:
+                        c_free_opp_used = 0
+
+                    # Two-way compatibility:
+                    # - candidate's gender must match what I want (or I accept any)
+                    if desired_bucket in {"male", "female"} and c_gender != desired_bucket:
+                        continue
+                    # - candidate must accept my gender (or accept any)
+                    if my_gender in {"male", "female"} and c_desired not in {my_gender, "any"}:
+                        continue
+
+                    # Free-user opposite-gender trial constraint (best-effort).
+                    if wants_opposite_trial and (not c_is_sub) and c_free_opp_used > 0:
+                        continue
+
+                    # Acquire a short lock so only one node matches this pair.
+                    a, b = (my_id, cid) if my_id < cid else (cid, my_id)
+                    lock_key = f"mm:video:pairlock:{a}:{b}"
+                    got = await r.set(lock_key, "1", nx=True, ex=10)
+                    if not got:
+                        continue
+
+                    # Remove both from their queues (best-effort).
+                    rem_me = await r.zrem(my_queue, str(my_id))
+                    rem_c = await r.zrem(c_queue, str(cid))
+                    if (rem_me or 0) <= 0 or (rem_c or 0) <= 0:
+                        # Race: put ourselves back, let lock expire.
+                        try:
+                            await r.zadd(my_queue, {str(my_id): float(now)})
+                        except Exception:
+                            pass
+                        continue
+
+                    return cid
+                return None
+
+            # Prefer loop-safe queues by skipping recently seen partners (best-effort).
+            # We still do the final "loop" constraint in DB after we pick a candidate.
+            other_id: Optional[int] = None
+            for qkey in candidate_queues:
+                other_id = await _try_match_from_queue(qkey)
+                if other_id:
+                    break
+
+            if not other_id:
+                return {"ok": True, "match": None, "webrtc": {"ws_url": ws_url}}
+
+            other = db.get(User, int(other_id))
+            if not other or other.id == user.id:
+                # Candidate vanished; let caller retry.
+                return {"ok": True, "match": None, "webrtc": {"ws_url": ws_url}}
+
+            # Create session in DB (durable record).
+            session = ChatSession(mode="video", user_a_id=user.id, user_b_id=other.id)
+            db.add(session)
+            db.commit()
+            db.refresh(session)
+
+            # Mark both in_call (legacy client behavior relies on this).
+            _video_set_in_call(db, u=user, session_id=session.id, partner_id=other.id)
+            _video_set_in_call(db, u=other, session_id=session.id, partner_id=user.id)
+            db.commit()
+
+            # Cache call membership for websocket path.
+            try:
+                await r.set(
+                    f"webrtc:call:{int(session.id)}",
+                    json.dumps({"a": int(user.id), "b": int(other.id)}, separators=(",", ":")),
+                    ex=2 * 60 * 60,
+                )
+            except Exception:
+                pass
+
+            out = _video_build_payload(session=session, me=user, other=other, duration_seconds=60)
+            # Add ws_url for websocket signaling clients.
+            try:
+                out.setdefault("webrtc", {})
+                out["webrtc"]["ws_url"] = ws_url
+            except Exception:
+                pass
+
+            # Notify both peers over websocket channel (best-effort).
+            try:
+                evt = json.dumps(
+                    {
+                        "type": "matched",
+                        "call_id": int(session.id),
+                        "role_a": "offerer",
+                        "a": int(session.user_a_id),
+                        "b": int(session.user_b_id),
+                        "ts": datetime.utcnow().isoformat(),
+                    },
+                    separators=(",", ":"),
+                )
+                await r.publish(f"ws:{int(user.id)}", evt)
+                await r.publish(f"ws:{int(other.id)}", evt)
+            except Exception:
+                pass
+
+            return out
+        except Exception:
+            # If Redis matchmaking fails for any reason, fall back to DB matcher below.
+            pass
+
+    # --- DB fallback (legacy; not scalable) ---
     online_threshold = datetime.utcnow() - timedelta(minutes=2)
     # Consider only users who are actively searching recently.
     searching_fresh = datetime.utcnow() - timedelta(seconds=35)
-    
+
     def get_candidate(exclude_ids=None):
         q = db.query(User).filter(
             User.id != user.id,
@@ -374,13 +593,10 @@ def video_match(
     if not other and excluded_ids:
         other = get_candidate(exclude_ids=None)
 
-    # 3. Fallback for free users (if they have no gender set, they match anyone - handled by desired_gender=None)
-    # If still no other, fail.
-
     if not other:
         # No candidate currently searching. Keep caller in searching state.
         # Return 200 so clients can poll/retry without treating it as an error.
-        return {"ok": True, "match": None}
+        return {"ok": True, "match": None, "webrtc": {"ws_url": ws_url}}
     
     session = ChatSession(mode="video", user_a_id=user.id, user_b_id=other.id)
     db.add(session)
@@ -421,7 +637,13 @@ def video_match(
             pass
     db.commit()
 
-    return _video_build_payload(session=session, me=user, other=other, duration_seconds=duration_seconds)
+    out = _video_build_payload(session=session, me=user, other=other, duration_seconds=duration_seconds)
+    try:
+        out.setdefault("webrtc", {})
+        out["webrtc"]["ws_url"] = ws_url
+    except Exception:
+        pass
+    return out
 
 
 @router.get("/video/token", response_model=VideoTokenOut)
