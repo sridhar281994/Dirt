@@ -278,8 +278,11 @@ class WebRTCAndroidClient:
             activity = self._activity
             container = self._container
 
-            top_margin = self._px(50)   # leave space for Kivy top bar
-            bot_margin = self._px(120)  # leave space for Kivy controls
+            # Fullscreen video:
+            # Previously we left top/bottom margins so Kivy UI stayed visible.
+            # Users want true fullscreen rendering, so margins are disabled.
+            top_margin = 0
+            bot_margin = 0
 
             def _add():
                 try:
@@ -309,6 +312,14 @@ class WebRTCAndroidClient:
 
                     local = TextureViewRenderer(activity)
                     local.init(egl_ctx, None)
+                    # Native upside-down fix:
+                    # On some Android devices, the camera frames are presented inverted
+                    # (180°) in the local TextureViewRenderer. Rotating the View itself
+                    # corrects the preview without changing the capture pipeline.
+                    try:
+                        local.setRotation(180.0)
+                    except Exception:
+                        pass
                     try:
                         local.setScalingType(RendererCommonScalingType.SCALE_ASPECT_FILL)
                     except Exception:
@@ -326,7 +337,7 @@ class WebRTCAndroidClient:
                     h = self._px(150)
                     lp = FrameLayoutLayoutParams(int(w), int(h))
                     lp.gravity = int(Gravity.BOTTOM) | int(Gravity.RIGHT)
-                    lp.bottomMargin = int(bot_margin + self._px(10))
+                    lp.bottomMargin = int(self._px(10))
                     lp.rightMargin = int(self._px(10))
                     container.addView(local, lp)
                     self._local_view = local
@@ -376,7 +387,8 @@ class WebRTCAndroidClient:
             listener = ClickListener()
             self._end_click_listener = listener
 
-            bot_margin = self._px(120)
+            # Fullscreen video: no reserved margin for Kivy controls.
+            bot_margin = 0
 
             def _add():
                 try:
