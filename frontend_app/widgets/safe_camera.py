@@ -3,6 +3,7 @@ from __future__ import annotations
 from kivy.clock import Clock
 from kivy.logger import Logger
 from kivy.uix.camera import Camera
+from kivy.utils import platform
 
 
 class AndroidSafeCamera(Camera):
@@ -36,6 +37,39 @@ class AndroidSafeCamera(Camera):
         self._retry_counts: dict[int, int] = {}
         self._last_working_index: int | None = None
         self._switch_scheduled = False
+        # Android camera textures are frequently vertically flipped depending on backend/OEM.
+        # Track the last texture object we flipped so we don't "toggle" it repeatedly.
+        self._last_flipped_texture_uid: int | None = None
+
+    def on_texture(self, _instance, texture):  # type: ignore[override]
+        """
+        Fix upside-down local preview on Android.
+
+        Kivy's legacy Android camera provider can deliver frames with inverted
+        texture coordinates (appears upside down). Flipping the texture once per
+        texture object corrects this.
+        """
+        # Let base class run first (ensures internal state is updated).
+        try:
+            ret = super().on_texture(_instance, texture)
+        except Exception:
+            ret = None
+
+        if platform == "android" and texture is not None:
+            try:
+                uid = id(texture)
+                if self._last_flipped_texture_uid != uid:
+                    # Flip vertically once for this texture instance.
+                    try:
+                        texture.flip_vertical()
+                    except Exception:
+                        # Some texture implementations may not support flipping.
+                        pass
+                    self._last_flipped_texture_uid = uid
+            except Exception:
+                pass
+
+        return ret
 
     def _switch_to(self, target: int, *, delay: float = 0.35) -> None:
         """
