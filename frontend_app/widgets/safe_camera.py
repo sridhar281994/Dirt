@@ -93,12 +93,38 @@ class AndroidSafeCamera(Camera):
             self._failed_indices.add(failed)
 
             # Heuristic recovery:
-            # - If non-zero index failed, fall back to 0.
-            # - If 0 failed, retry once (some backends are flaky on first open).
-            if failed >= 1 and 0 not in self._failed_indices:
-                Logger.warning("AndroidSafeCamera: falling back to index=0 (failed index=%s)", failed)
-                self._switch_to(0, delay=0.35)
-                return
+            # - Prefer falling back to the last known good index (avoids jumping to 0
+            #   on devices where camera ids are nonstandard, or where id 0 is an aux cam
+            #   that can open but render black).
+            # - Otherwise, try common ids (0, then 1) if they haven't failed.
+            if failed >= 0:
+                candidates = []
+                try:
+                    if self._last_working_index is not None:
+                        candidates.append(int(self._last_working_index))
+                except Exception:
+                    pass
+                candidates.extend([0, 1])
+                for c in candidates:
+                    if c is None:
+                        continue
+                    try:
+                        c = int(c)
+                    except Exception:
+                        continue
+                    if c < 0:
+                        continue
+                    if c == failed:
+                        continue
+                    if c in self._failed_indices:
+                        continue
+                    Logger.warning(
+                        "AndroidSafeCamera: init failed index=%s; falling back to index=%s",
+                        failed,
+                        c,
+                    )
+                    self._switch_to(c, delay=0.35)
+                    return
 
             if failed == 0:
                 c = int(self._retry_counts.get(0, 0))
