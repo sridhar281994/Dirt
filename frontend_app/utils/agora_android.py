@@ -495,6 +495,15 @@ class AgoraAndroidClient:
                 if local_view is None:
                     return
 
+                # Native upside-down fix:
+                # Some devices/ROMs deliver the local camera preview rotated 180° when
+                # rendered via TextureView/SurfaceView in an overlay. Rotating the view
+                # itself corrects it (keeps capture/encoding unchanged).
+                try:
+                    local_view.setRotation(180.0)
+                except Exception:
+                    pass
+
                 # Bottom-right PiP
                 w = int(360)  # px; simple default (Kivy UI already scales)
                 h = int(480)

@@ -309,6 +309,14 @@ class WebRTCAndroidClient:
 
                     local = TextureViewRenderer(activity)
                     local.init(egl_ctx, None)
+                    # Native upside-down fix:
+                    # On some Android devices, the camera frames are presented inverted
+                    # (180°) in the local TextureViewRenderer. Rotating the View itself
+                    # corrects the preview without changing the capture pipeline.
+                    try:
+                        local.setRotation(180.0)
+                    except Exception:
+                        pass
                     try:
                         local.setScalingType(RendererCommonScalingType.SCALE_ASPECT_FILL)
                     except Exception:
