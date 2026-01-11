@@ -135,3 +135,25 @@ class Subscription(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     user = relationship("User", backref="subscriptions")
+
+
+class WebRTCSignal(Base):
+    """
+    Persistent WebRTC signaling messages for a 1:1 video ChatSession.
+
+    We intentionally keep signaling simple and HTTP-pollable:
+    - offer / answer are stored as "latest" per sender (client overwrites)
+    - ice candidates are appended and fetched incrementally via since_id
+    """
+
+    __tablename__ = "webrtc_signals"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(Integer, ForeignKey("chat_sessions.id"), nullable=False, index=True)
+    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    kind = Column(String, nullable=False, index=True)  # offer|answer|ice|bye
+    payload = Column(Text, nullable=False)  # JSON string
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    session = relationship("ChatSession")
+    sender = relationship("User")

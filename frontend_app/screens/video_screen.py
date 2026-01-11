@@ -15,6 +15,7 @@ from kivy.core.window import Window
 from frontend_app.utils.api import ApiError, api_video_match, api_video_end, api_get_messages, api_post_message
 from frontend_app.utils.android_camera import get_android_camera_ids
 from frontend_app.utils.agora_android import AgoraAndroidClient, AgoraJoinInfo
+from frontend_app.utils.webrtc_android import WebRTCAndroidClient, WebRTCJoinInfo
 from frontend_app.utils.storage import get_user
 
 
@@ -67,6 +68,10 @@ class VideoScreen(Screen):
     # True when we expect to render the opponent stream via Agora's native overlay.
     # When this is True, the Kivy placeholder avatar (initials) should be hidden.
     use_agora = BooleanProperty(False)
+    # True when we expect to render the call via WebRTC native overlay.
+    use_webrtc = BooleanProperty(False)
+    webrtc_role = StringProperty("")  # offerer|answerer
+    webrtc_connected = BooleanProperty(False)
     
     _ticker = None
     _chat_ticker = None
@@ -92,6 +97,31 @@ class VideoScreen(Screen):
             on_end_requested=lambda: self.end_call(),
         )
         self._refresh_use_agora()
+        self._webrtc = WebRTCAndroidClient(
+            on_connected=self._on_webrtc_connected,
+            on_disconnected=self._on_webrtc_disconnected,
+            on_end_requested=lambda: self.end_call(),
+        )
+        self._webrtc_conf: dict = {}
+
+    def _refresh_use_webrtc(self) -> None:
+        """
+        Sync `use_webrtc` with current session + backend config.
+        """
+        try:
+            if platform != "android":
+                self.use_webrtc = False
+                return
+            if int(self.session_id or 0) <= 0:
+                self.use_webrtc = False
+                return
+            conf = dict(getattr(self, "_webrtc_conf", {}) or {})
+            role = str(conf.get("role") or self.webrtc_role or "").strip().lower()
+            stun = conf.get("stun_urls") or []
+            stun_ok = bool(isinstance(stun, (list, tuple)) and len(stun) > 0)
+            self.use_webrtc = bool(role in {"offerer", "answerer"} and stun_ok)
+        except Exception:
+            self.use_webrtc = False
 
     def _refresh_use_agora(self) -> None:
         """
@@ -250,6 +280,91 @@ class VideoScreen(Screen):
         self.agora_remote_uid = 0
         self._refresh_use_agora()
 
+    # ---------------------------------------------------------------------
+    # WebRTC (Android)
+    # ---------------------------------------------------------------------
+
+    def _webrtc_should_use(self) -> bool:
+        try:
+            return bool(platform == "android" and int(self.session_id or 0) > 0 and bool(self.use_webrtc))
+        except Exception:
+            return False
+
+    def _on_webrtc_connected(self) -> None:
+        try:
+            self.webrtc_connected = True
+            self.is_remote_connected = True
+            self._set_loading(False)
+        except Exception:
+            pass
+        self._maybe_start_timer()
+
+    def _on_webrtc_disconnected(self) -> None:
+        try:
+            self.webrtc_connected = False
+            self.is_remote_connected = False
+            self._set_loading(bool(int(self.session_id or 0) > 0))
+        except Exception:
+            pass
+        self._stop_timer()
+
+    def _webrtc_join_if_ready(self) -> None:
+        if not self._webrtc_should_use():
+            self._refresh_use_webrtc()
+            return
+        if not (bool(self.camera_permission_granted) and bool(self.audio_permission_granted)):
+            return
+        if not self._webrtc:
+            return
+
+        # Stop Kivy camera to avoid conflicts with Camera2 capturer.
+        try:
+            self._stop_camera()
+        except Exception:
+            pass
+        try:
+            self.camera_should_play = False
+        except Exception:
+            pass
+
+        conf = dict(getattr(self, "_webrtc_conf", {}) or {})
+        try:
+            stun_urls = list(conf.get("stun_urls") or [])
+        except Exception:
+            stun_urls = []
+        role = str(conf.get("role") or self.webrtc_role or "").strip().lower()
+        if role not in {"offerer", "answerer"}:
+            # Backend should always send this; fallback to offerer for safety.
+            role = "offerer"
+
+        self._set_loading(True)
+        self.webrtc_connected = False
+        self._refresh_use_webrtc()
+
+        ok = self._webrtc.start(
+            info=WebRTCJoinInfo(
+                session_id=int(self.session_id or 0),
+                role=str(role),
+                stun_urls=stun_urls or ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"],
+            ),
+            prefer_front_camera=bool(self.is_front_camera),
+        )
+        if not ok:
+            self.use_webrtc = False
+            self.webrtc_connected = False
+            self._set_loading(False)
+            try:
+                self.match_desc = "Unable to start WebRTC video. Please check your internet and try again."
+            except Exception:
+                pass
+            self._refresh_use_webrtc()
+            # Resume local Kivy preview.
+            try:
+                self.camera_should_play = True
+                self._start_camera()
+            except Exception:
+                pass
+
     def on_pre_enter(self, *args):
         # Refresh permission flags whenever screen is about to show.
         self._init_camera_ids()
@@ -261,19 +376,29 @@ class VideoScreen(Screen):
         self._ensure_android_av_permissions()
         self.controls_visible = True
         self._refresh_use_agora()
+        self._refresh_use_webrtc()
         self._sync_remote_loading_state()
         self._start_chat_polling()
         # If we already have a match/session, join Agora immediately.
         Clock.schedule_once(lambda *_: self._agora_join_if_ready(), 0.05)
+        Clock.schedule_once(lambda *_: self._webrtc_join_if_ready(), 0.05)
 
     def on_leave(self, *args):
         """Stop camera when leaving the screen."""
         self._agora_leave(destroy=True)
+        try:
+            if self._webrtc:
+                self._webrtc.stop()
+        except Exception:
+            pass
+        self.use_webrtc = False
+        self.webrtc_connected = False
         self._stop_camera()
         self._cancel_camera_monitors()
         self._set_loading(False)
         self._stop_chat_polling()
         self._refresh_use_agora()
+        self._refresh_use_webrtc()
 
     def _init_local_preview_transform(self) -> None:
         """
@@ -387,10 +512,13 @@ class VideoScreen(Screen):
 
         if sid > 0:
             self._ensure_android_av_permissions()
+            self._refresh_use_webrtc()
+            Clock.schedule_once(lambda *_: self._webrtc_join_if_ready(), 0.05)
         else:
             # Keep local preview active even if call is not connected yet.
             # (User wants to see their own video while searching / after ending.)
             self._ensure_android_av_permissions()
+            self._refresh_use_webrtc()
         # Session changed: clear the 1:1 chat overlay (UI only).
         self._clear_chat_overlay()
         # Trigger an immediate refresh for the new session (if any).
@@ -594,8 +722,10 @@ class VideoScreen(Screen):
 
         # If already granted (or not Android), just start.
         if bool(self.camera_permission_granted) and bool(self.audio_permission_granted):
-            # If a call is active, prefer Agora capture (don't start Kivy camera).
-            if self._agora_should_use():
+            # If a call is active, prefer WebRTC/Agora capture (don't start Kivy camera).
+            if self._webrtc_should_use():
+                Clock.schedule_once(lambda *_: self._webrtc_join_if_ready(), 0)
+            elif self._agora_should_use():
                 Clock.schedule_once(lambda *_: self._agora_join_if_ready(), 0)
             else:
                 self._start_camera()
@@ -617,7 +747,9 @@ class VideoScreen(Screen):
                         # Refresh from system, don't trust raw grants format.
                         self._refresh_android_permission_state()
                         if self.camera_permission_granted and self.audio_permission_granted:
-                            if self._agora_should_use():
+                            if self._webrtc_should_use():
+                                Clock.schedule_once(lambda *_: self._webrtc_join_if_ready(), 0)
+                            elif self._agora_should_use():
                                 Clock.schedule_once(lambda *_: self._agora_join_if_ready(), 0)
                             else:
                                 self._start_camera()
@@ -713,6 +845,13 @@ class VideoScreen(Screen):
             # Leaving old channel before switching to a new match.
             if old_sid > 0:
                 self._agora_leave(destroy=False)
+                try:
+                    if self._webrtc:
+                        self._webrtc.stop()
+                except Exception:
+                    pass
+                self.webrtc_connected = False
+                self.use_webrtc = False
 
         self.session_id = int(sess.get("id") or 0)
         self.channel = str(payload.get("channel") or "")
@@ -747,10 +886,21 @@ class VideoScreen(Screen):
         self.elapsed_seconds = 0
         self.timer_text = "00:00"
         self._refresh_use_agora()
+        # WebRTC (preferred): capture config and join if ready.
+        try:
+            self._webrtc_conf = dict(payload.get("webrtc") or {})
+        except Exception:
+            self._webrtc_conf = {}
+        try:
+            self.webrtc_role = str((self._webrtc_conf.get("role") or "")).strip().lower()
+        except Exception:
+            self.webrtc_role = ""
+        self._refresh_use_webrtc()
         # Start timer only once the remote user is actually connected.
         self._stop_timer()
         self._ensure_android_av_permissions()
         Clock.schedule_once(lambda *_: self._agora_join_if_ready(), 0.05)
+        Clock.schedule_once(lambda *_: self._webrtc_join_if_ready(), 0.05)
         self._sync_remote_loading_state()
         self._maybe_start_timer()
 
@@ -910,6 +1060,13 @@ class VideoScreen(Screen):
         self._stop_timer()
         self._set_loading(False)
         self._agora_leave(destroy=True)
+        try:
+            if self._webrtc:
+                self._webrtc.stop()
+        except Exception:
+            pass
+        self.use_webrtc = False
+        self.webrtc_connected = False
         
         # End call in backend to clear busy status
         sid = int(self.session_id or 0)
@@ -929,6 +1086,11 @@ class VideoScreen(Screen):
         """
         self._stop_timer()
         self._agora_leave(destroy=True)
+        try:
+            if self._webrtc:
+                self._webrtc.stop()
+        except Exception:
+            pass
         sid = int(self.session_id or 0)
 
         # Clear session + remote UI state (keep local preview running).
@@ -952,6 +1114,9 @@ class VideoScreen(Screen):
         self.is_remote_connected = False
         self._set_loading(False)
         self._clear_chat_overlay()
+        self.use_webrtc = False
+        self.webrtc_connected = False
+        self._refresh_use_webrtc()
 
         def end_call_bg():
             try:
@@ -973,6 +1138,14 @@ class VideoScreen(Screen):
 
         if platform != "android":
             return
+
+        # If WebRTC is active, mute within the local audio track.
+        try:
+            if self._webrtc and self._webrtc.is_running:
+                self._webrtc.set_muted(bool(self.is_muted))
+                return
+        except Exception:
+            pass
 
         # If Agora is active, mute within the RTC engine.
         try:
@@ -996,6 +1169,16 @@ class VideoScreen(Screen):
 
     def toggle_camera(self) -> None:
         """Switch between front and back camera."""
+        # If WebRTC is active, switch camera in the capturer.
+        if platform == "android":
+            try:
+                if self._webrtc and self._webrtc.is_running:
+                    self._webrtc.switch_camera()
+                    self.is_front_camera = not bool(self.is_front_camera)
+                    return
+            except Exception:
+                pass
+
         # If Agora is active, switch camera in the RTC engine.
         if platform == "android":
             try:
@@ -1077,7 +1260,9 @@ class VideoScreen(Screen):
         """
         Decide whether to show loader based on match/online state.
         """
-        if self._agora_should_use():
+        if self._webrtc_should_use():
+            connected = bool(self.webrtc_connected)
+        elif self._agora_should_use():
             connected = bool(self.agora_remote_connected)
         else:
             connected = bool(self.session_id > 0 and self.match_username and self.match_is_online)

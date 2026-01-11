@@ -417,6 +417,78 @@ def api_video_end(*, session_id: int | None = None) -> Dict[str, Any]:
     return r.json()
 
 
+def api_webrtc_post_offer(*, session_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+    r = _request(
+        "POST",
+        f"{_base_url()}/api/video/webrtc/offer",
+        json={"session_id": int(session_id), "payload": payload or {}},
+        headers=_headers(auth=True),
+        timeout=_DEFAULT_TIMEOUT,
+    )
+    _raise(r)
+    return r.json()
+
+
+def api_webrtc_get_offer(*, session_id: int) -> Dict[str, Any]:
+    r = _request(
+        "GET",
+        f"{_base_url()}/api/video/webrtc/offer",
+        params={"session_id": int(session_id)},
+        headers=_headers(auth=True),
+        timeout=_DEFAULT_TIMEOUT,
+    )
+    _raise(r)
+    return r.json()
+
+
+def api_webrtc_post_answer(*, session_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+    r = _request(
+        "POST",
+        f"{_base_url()}/api/video/webrtc/answer",
+        json={"session_id": int(session_id), "payload": payload or {}},
+        headers=_headers(auth=True),
+        timeout=_DEFAULT_TIMEOUT,
+    )
+    _raise(r)
+    return r.json()
+
+
+def api_webrtc_get_answer(*, session_id: int) -> Dict[str, Any]:
+    r = _request(
+        "GET",
+        f"{_base_url()}/api/video/webrtc/answer",
+        params={"session_id": int(session_id)},
+        headers=_headers(auth=True),
+        timeout=_DEFAULT_TIMEOUT,
+    )
+    _raise(r)
+    return r.json()
+
+
+def api_webrtc_post_ice(*, session_id: int, candidate: Dict[str, Any]) -> Dict[str, Any]:
+    r = _request(
+        "POST",
+        f"{_base_url()}/api/video/webrtc/ice",
+        json={"session_id": int(session_id), "candidate": candidate or {}},
+        headers=_headers(auth=True),
+        timeout=_DEFAULT_TIMEOUT,
+    )
+    _raise(r)
+    return r.json()
+
+
+def api_webrtc_get_ice(*, session_id: int, since_id: int = 0, limit: int = 50) -> Dict[str, Any]:
+    r = _request(
+        "GET",
+        f"{_base_url()}/api/video/webrtc/ice",
+        params={"session_id": int(session_id), "since_id": int(since_id), "limit": int(limit)},
+        headers=_headers(auth=True),
+        timeout=_DEFAULT_TIMEOUT,
+    )
+    _raise(r)
+    return r.json()
+
+
 def api_get_public_messages(*, limit: int = 500) -> Dict[str, Any]:
     r = _request(
         "GET",

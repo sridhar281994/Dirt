@@ -37,6 +37,7 @@ else:
     from routers.public_chat import router as public_router
     from routers.report import router as report_router
     from routers.subscription import router as sub_router
+    from routers.webrtc import router as webrtc_router
 
     app = FastAPI(title="Chat App Backend")
 
@@ -97,6 +98,7 @@ else:
     app.include_router(public_router, prefix="/api")
     app.include_router(sub_router, prefix="/api")
     app.include_router(report_router, prefix="/api")
+    app.include_router(webrtc_router, prefix="/api")
 
     def _cleanup_old_messages() -> int:
         """Delete chat history older than 48 hours."""
