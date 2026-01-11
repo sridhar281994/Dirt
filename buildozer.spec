@@ -113,8 +113,11 @@ android.permissions = INTERNET,CAMERA,RECORD_AUDIO,MODIFY_AUDIO_SETTINGS,ACCESS_
 
 # WebRTC SDK (Android) + AndroidX Security (used for encrypted prefs)
 #
-# Replaces Agora with Google WebRTC (org.webrtc).
-android.gradle_dependencies = org.webrtc:google-webrtc:1.0.32006,androidx.security:security-crypto:1.1.0-alpha06
+# NOTE:
+# The old coordinate `org.webrtc:google-webrtc` is not published in Maven Central / Google Maven,
+# so Gradle cannot resolve it and the Android build fails at `:checkDebugAarMetadata`.
+# Use the published Maven Central artifact that provides the same `org.webrtc.*` classes.
+android.gradle_dependencies = io.github.webrtc-sdk:android:137.7151.05,androidx.security:security-crypto:1.1.0-alpha06
 
 # Gradle repositories required to resolve Agora artifacts.
 android.add_gradle_repositories = mavenCentral()
