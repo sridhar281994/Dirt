@@ -10,6 +10,7 @@ from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen
 from kivy.utils import platform
+from kivy.core.window import Window
 
 from frontend_app.utils.android_camera import get_android_camera_ids
 from frontend_app.utils.api import ApiError, api_get_messages, api_post_message, api_video_end, api_video_match
@@ -53,6 +54,7 @@ class StartVideoDateScreen(Screen):
         super().__init__(**kwargs)
         self._init_camera_ids()
         self._init_local_preview_transform()
+        self._preview_autofix_ev = None
         # Chat overlay layout throttling (prevents excessive relayout iterations).
         self._chat_box_width_bound = False
         self._chat_rewrap_trigger = None
@@ -88,16 +90,26 @@ class StartVideoDateScreen(Screen):
         """
         Camera preview rules (Android-safe):
     
-        - NEVER rotate the preview
+        - Android: Kivy's legacy Camera backend often delivers frames rotated vs a portrait UI.
+          We compensate by rotating the preview container in KV (Scatter).
         - Front camera → mirror (selfie style)
         - Back camera → normal
         """
-    
-        # Android camera buffers are already landscape – do NOT rotate
-        self.local_preview_rotation = 0
+
+        rotation = 0
+        if platform == "android":
+            try:
+                is_portrait = float(getattr(Window, "height", 0) or 0) >= float(getattr(Window, "width", 0) or 0)
+            except Exception:
+                is_portrait = True
+            if is_portrait:
+                # Scatter rotation is counter-clockwise; most devices need a clockwise 90° correction.
+                rotation = -90
+
+        self.local_preview_rotation = rotation
         self.local_preview_swap_wh = False
-    
-        # Mirror only front camera
+
+        # Mirror only front camera (selfie preview).
         self.local_preview_scale_x = -1 if self.is_front_camera else 1
         self.local_preview_scale_y = 1
 
@@ -194,6 +206,7 @@ class StartVideoDateScreen(Screen):
         if cam and hasattr(cam, "index"):
             cam.index = int(self.active_camera_index)
         self.camera_should_play = True
+        self._schedule_preview_portrait_autofix()
 
     def _stop_camera(self) -> None:
         cam = self.ids.get("local_camera")
@@ -207,19 +220,98 @@ class StartVideoDateScreen(Screen):
         if not cam:
             return
 
-        was_playing = self.camera_should_play
+        was_playing = bool(self.camera_should_play)
         self.camera_should_play = False
+
+        # Disconnect first (avoids "camera already in use" and flaky reopen on some OEM ROMs).
+        try:
+            if hasattr(cam, "index"):
+                cam.index = -2
+        except Exception:
+            pass
 
         back = int(self.back_camera_index)
         front = int(self.front_camera_index)
-        self.active_camera_index = front if self.active_camera_index == back else back
+        current = int(self.active_camera_index)
+        target = front if current == back else back
+        self.active_camera_index = int(target)
         self._update_front_flag()
 
-        if hasattr(cam, "index"):
-            cam.index = self.active_camera_index
+        def _resume(*_dt):
+            try:
+                if hasattr(cam, "index"):
+                    cam.index = int(target)
+            except Exception:
+                pass
+            if was_playing:
+                self.camera_should_play = True
+                self._schedule_preview_portrait_autofix()
 
-        if was_playing:
-            Clock.schedule_once(lambda *_: setattr(self, "camera_should_play", True), 0.25)
+        Clock.schedule_once(_resume, 0.35)
+
+    def _schedule_preview_portrait_autofix(self) -> None:
+        """
+        Auto-adjust preview rotation once a real camera frame arrives.
+
+        Why:
+        On some Android devices the camera backend already compensates orientation,
+        so forcing -90 can be wrong. We use a simple heuristic based on
+        texture size vs widget box size and set rotation accordingly.
+        """
+        if platform != "android":
+            return
+        if getattr(self, "_preview_autofix_ev", None) is not None:
+            return
+
+        def _check(_dt):
+            if not self.get_parent_window():
+                self._preview_autofix_ev = None
+                return False
+            if not (bool(self.camera_permission_granted) and bool(self.camera_should_play)):
+                self._preview_autofix_ev = None
+                return False
+
+            cam = self.ids.get("local_camera")
+            box = self.ids.get("local_preview")
+            if cam is None or box is None:
+                self._preview_autofix_ev = None
+                return False
+
+            try:
+                tex = getattr(cam, "texture", None)
+                if tex is None:
+                    return True
+                tw, th = float(tex.size[0]), float(tex.size[1])
+            except Exception:
+                return True
+
+            if tw <= 0 or th <= 0:
+                return True
+
+            try:
+                bw, bh = float(box.width or 0), float(box.height or 0)
+            except Exception:
+                bw, bh = 0.0, 0.0
+            if bw <= 0 or bh <= 0:
+                return True
+
+            tex_is_landscape = tw >= th
+            box_is_portrait = bh >= bw
+
+            if tex_is_landscape and box_is_portrait:
+                self.local_preview_rotation = -90
+            elif (not tex_is_landscape) and (not box_is_portrait):
+                self.local_preview_rotation = -90
+            else:
+                self.local_preview_rotation = 0
+
+            # Re-apply mirroring (front/back may have changed).
+            self.local_preview_scale_x = -1 if bool(self.is_front_camera) else 1
+
+            self._preview_autofix_ev = None
+            return False
+
+        self._preview_autofix_ev = Clock.schedule_interval(_check, 0.25)
 
     def toggle_mute(self) -> None:
         """
