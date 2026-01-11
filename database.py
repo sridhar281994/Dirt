@@ -39,11 +39,26 @@ connect_args = (
     else {}
 )
 
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-    connect_args=connect_args,
-)
+_engine_kwargs = {
+    "pool_pre_ping": True,
+    "connect_args": connect_args,
+}
+# Production tuning (Postgres only). Keep SQLite defaults.
+if not DATABASE_URL.startswith("sqlite"):
+    try:
+        _engine_kwargs["pool_size"] = int(os.getenv("DB_POOL_SIZE", "5"))
+    except Exception:
+        pass
+    try:
+        _engine_kwargs["max_overflow"] = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+    except Exception:
+        pass
+    try:
+        _engine_kwargs["pool_recycle"] = int(os.getenv("DB_POOL_RECYCLE", "1800"))
+    except Exception:
+        pass
+
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
 SessionLocal = sessionmaker(
     bind=engine,
